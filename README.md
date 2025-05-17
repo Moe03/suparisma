@@ -730,6 +730,33 @@ const { data } = useSuparisma.thing({
 
 ### Common Issues
 
+**Realtime not working**
+- First, make sure you have ran npx suparisma generate as that will automatically add all your tables to the realtime supabase publication.
+- Second, Make sure to have realtime: true in the hook usage and also in supabase go to tables > publications > supabase_realtime and there you must find the tables you created in prisma in there or the realtime is not working properly.
+
+**No permissions/this table doesn't exist**
+- If you ever run into such issue make sure the **anon** has suffiecient permissions to access your tables, this issue especially is common when you do prisma migrate.
+```sql
+-- Replace YOUR_TABLE_NAME with the actual table names affected by your migration
+
+-- Grant usage on the schema to anon
+GRANT USAGE ON SCHEMA public TO anon;
+
+-- Grant SELECT, INSERT, UPDATE, DELETE on tables to anon
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon;
+
+-- Ensure future tables also grant these permissions
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon;
+
+-- Grant usage on sequences to anon (if using auto-increment IDs)
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon;
+
+-- Ensure future sequences also grant usage to anon
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT USAGE, SELECT ON SEQUENCES TO anon;
+```
+
 **"Unknown command: undefined"**
 
 This happens when running the CLI without specifying a command. Use `npx suparisma generate` instead.
