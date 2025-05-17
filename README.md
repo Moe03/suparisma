@@ -122,6 +122,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
 ```bash
 npx suparisma generate
 ```
+Note: you can adjust the prisma schema path and the generated files output path with these ENV variables:
+```bash
+SUPARISMA_PRISMA_SCHEMA_PATH="./prisma/schema.prisma"
+SUPARISMA_OUTPUT_DIR="./src/suparisma/generated"
+```
+Also make sure to not change any of these generated files directly as **they will always be overwritten**
 
 4. **Use the hooks** in your React components:
 
