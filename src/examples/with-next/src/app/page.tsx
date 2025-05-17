@@ -1,7 +1,8 @@
 "use client";
 import { create } from "domain";
-import useSuparisma from "../../generated";
+
 import { useEffect, useState } from "react";
+import useSuparisma from "../generated";
 
 export default function Home() {
 

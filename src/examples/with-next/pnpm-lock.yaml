@@ -21,8 +21,8 @@ importers:
         specifier: ^19.0.0
         version: 19.1.0(react@19.1.0)
       suparisma:
-        specifier: ^0.0.3
-        version: 0.0.3
+        specifier: ^0.0.4
+        version: 0.0.4
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4
@@ -654,8 +654,9 @@ packages:
       babel-plugin-macros:
         optional: true
 
-  suparisma@0.0.3:
-    resolution: {integrity: sha512-RE6rpMUNjfZwwfTKXNyvLBcuftCrZ4BH+07pLvT5j/PsvEV3EyaVrqnUynzrA6Y5CsXb6iPKIEFruFkeSiwSmQ==}
+  suparisma@0.0.4:
+    resolution: {integrity: sha512-Q9fV0ZCyMwR8cmpFARhMKlxjSZZHa1A2qzVokkyKAohBPYYryAUjdMFRdx2S6aAK3iuCtKVqcrwVYaf2TgbNUg==}
+    hasBin: true
 
   tailwindcss@4.1.7:
     resolution: {integrity: sha512-kr1o/ErIdNhTz8uzAYL7TpaUuzKIE6QPQ4qmSdxnoX/lo+5wmUHQA6h3L5yIqEImSRnAAURDirLu/BgiXGPAhg==}
@@ -1246,7 +1247,7 @@ snapshots:
       client-only: 0.0.1
       react: 19.1.0
 
-  suparisma@0.0.3:
+  suparisma@0.0.4:
     dependencies:
       '@supabase/supabase-js': 2.49.4
       dotenv: 16.5.0
