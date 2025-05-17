@@ -110,6 +110,15 @@ model AuditLog {
 }
 ```
 
+## Stale Models Cleanup
+
+When you delete a model from your Prisma schema and run the generation command, Suparisma automatically:
+- Detects changes to your schema
+- Deletes the entire generated directory
+- Regenerates all hooks and types based on your current schema
+
+This ensures you don't have stale files lingering around for models that no longer exist in your schema.
+
 ## CLI Commands
 
 Suparisma provides a simple CLI with the following commands:

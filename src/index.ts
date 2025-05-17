@@ -318,6 +318,13 @@ async function generateHooks() {
     console.log(`Prisma schema path: ${PRISMA_SCHEMA_PATH}`);
     console.log(`Output directory: ${OUTPUT_DIR}`);
 
+    // Delete the entire output directory if it exists to clean up any stale files
+    if (fs.existsSync(OUTPUT_DIR)) {
+      console.log(`🧹 Cleaning up previous generated files in ${OUTPUT_DIR}...`);
+      fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+      console.log(`✅ Removed previous generated directory`);
+    }
+
     // Ensure all specific output directories exist, OUTPUT_DIR is the root and will be created if needed by sub-creations.
     const dirsToEnsure = [TYPES_DIR, HOOKS_DIR, UTILS_DIR];
     dirsToEnsure.forEach(dir => {
