@@ -3,6 +3,10 @@
 	"version": "0.0.4",
 	"description": "Opinionated typesafe React realtime CRUD hooks generator for all your Supabase tables, powered by Prisma.",
 	"main": "dist/index.js",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Moe03/suparisma"
+	},
 	"scripts": {
 		"build": "tsc",
 		"start": "node dist/index.js",
