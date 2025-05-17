@@ -151,6 +151,37 @@ export type SearchState = {
 };
 
 /**
+ * Compare two values for sorting with proper type handling
+ */
+function compareValues(a: any, b: any, direction: 'asc' | 'desc'): number {
+  // Handle undefined/null values
+  if (a === undefined || a === null) return direction === 'asc' ? -1 : 1;
+  if (b === undefined || b === null) return direction === 'asc' ? 1 : -1;
+  
+  // Handle numbers properly to ensure numeric comparison
+  if (typeof a === 'number' && typeof b === 'number') {
+    return direction === 'asc' 
+      ? a - b
+      : b - a;
+  }
+  
+  // Handle dates (convert to timestamps for comparison)
+  if (a instanceof Date && b instanceof Date) {
+    return direction === 'asc' 
+      ? a.getTime() - b.getTime()
+      : b.getTime() - a.getTime();
+  }
+  
+  // Handle strings or mixed types with string conversion
+  const aStr = String(a);
+  const bStr = String(b);
+  
+  return direction === 'asc'
+    ? aStr.localeCompare(bStr)
+    : bStr.localeCompare(aStr);
+}
+
+/**
  * Convert a type-safe where filter to Supabase filter string
  */
 export function buildFilterString<T>(where?: T): string | undefined {
@@ -311,11 +342,17 @@ export function applyOrderBy<T>(
   
   // Apply each order by clause
   let orderedQuery = query;
-  for (const [key, direction] of Object.entries(orderBy)) {
-    // @ts-ignore: Supabase typing issue
-    orderedQuery = orderedQuery.order(key, {
-      ascending: direction === 'asc'
-    });
+  
+  // Handle orderBy as array or single object
+  const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
+  
+  for (const orderByClause of orderByArray) {
+    for (const [key, direction] of Object.entries(orderByClause)) {
+      // @ts-ignore: Supabase typing issue
+      orderedQuery = orderedQuery.order(key, {
+        ascending: direction === 'asc'
+      });
+    }
   }
   
   return orderedQuery;
@@ -382,9 +419,29 @@ export function createSuparismaHook<
       offset,
     } = options;
     
-    // Compute the actual filter string from the type-safe where object or use legacy filter
-    const computedFilter = where ? buildFilterString(where) : realtimeFilter;
-    
+    // Refs to store the latest options for realtime handlers
+    const whereRef = useRef(where);
+    const orderByRef = useRef(orderBy);
+    const limitRef = useRef(limit);
+    const offsetRef = useRef(offset);
+
+    // Update refs whenever options change
+    useEffect(() => {
+      whereRef.current = where;
+    }, [where]);
+
+    useEffect(() => {
+      orderByRef.current = orderBy;
+    }, [orderBy]);
+
+    useEffect(() => {
+      limitRef.current = limit;
+    }, [limit]);
+
+    useEffect(() => {
+      offsetRef.current = offset;
+    }, [offset]);
+
     // Single data collection for holding results
     const [data, setData] = useState<TWithRelations[]>([]);
     const [error, setError] = useState<Error | null>(null);
@@ -768,14 +825,11 @@ export function createSuparismaHook<
       
       const channelId = channelName || \`changes_to_\${tableName}_\${Math.random().toString(36).substring(2, 15)}\`;
       
-      // Store the current filter and options for closure
-      const currentFilter = computedFilter;
-      const currentWhere = where;
-      const currentOrderBy = orderBy;
-      const currentLimit = limit;
-      const currentOffset = offset;
-      
-      console.log(\`Setting up subscription for \${tableName} with filter: \${currentFilter}\`);
+      // Use a dynamic filter string builder inside the event handler or rely on Supabase
+      // For the subscription filter, we must use the initial computedFilter or a stable one.
+      // However, for client-side logic (sorting, adding/removing from list), we use refs.
+      const initialComputedFilter = where ? buildFilterString(where) : realtimeFilter;
+      console.log(\`Setting up subscription for \${tableName} with initial filter: \${initialComputedFilter}\`);
       
       const channel = supabase
         .channel(channelId)
@@ -785,11 +839,17 @@ export function createSuparismaHook<
             event: '*',
             schema: 'public',
             table: tableName,
-            filter: currentFilter,
+            filter: initialComputedFilter, // Subscription filter uses initial state
           },
           (payload) => {
             console.log(\`Received \${payload.eventType} event for \${tableName}\`, payload);
             
+            // Access current options via refs inside the event handler
+            const currentWhere = whereRef.current;
+            const currentOrderBy = orderByRef.current;
+            const currentLimit = limitRef.current;
+            const currentOffset = offsetRef.current; // Not directly used in handlers but good for consistency
+
             // Skip realtime updates when search is active
             if (isSearchingRef.current) return;
             
@@ -801,7 +861,7 @@ export function createSuparismaHook<
                   console.log(\`Processing INSERT for \${tableName}\`, { newRecord });
                   
                   // Check if this record matches our filter if we have one
-                  if (currentWhere) {
+                  if (currentWhere) { // Use ref value
                     let matchesFilter = true;
                     
                     // Check each filter condition
@@ -833,27 +893,43 @@ export function createSuparismaHook<
                   }
                   
                   // Add the new record to the data
-                  let newData = [newRecord, ...prev];
+                  let newData = [...prev, newRecord]; // Changed: Use spread on prev for immutability
                   
                   // Apply ordering if specified
-                  if (currentOrderBy) {
-                    const [orderField, direction] = Object.entries(currentOrderBy)[0] || [];
-                    if (orderField) {
-                      newData = [...newData].sort((a, b) => {
-                        const aValue = a[orderField as keyof typeof a] ?? '';
-                        const bValue = b[orderField as keyof typeof b] ?? '';
-                        
-                        if (direction === 'asc') {
-                          return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
-                        } else {
-                          return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+                  if (currentOrderBy) { // Use ref value
+                    // Convert orderBy to array format for consistency if it's an object
+                    const orderByArray = Array.isArray(currentOrderBy) 
+                      ? currentOrderBy 
+                      : [currentOrderBy];
+                      
+                    // Apply each sort in sequence
+                    newData = [...newData].sort((a, b) => {
+                      // Check each orderBy clause in sequence
+                      for (const orderByClause of orderByArray) {
+                        for (const [field, direction] of Object.entries(orderByClause)) {
+                          const aValue = a[field as keyof typeof a];
+                          const bValue = b[field as keyof typeof b];
+                          
+                          // Skip if values are equal and move to next criterion
+                          if (aValue === bValue) continue;
+                          
+                          // Use the compareValues function for proper type handling
+                          return compareValues(aValue, bValue, direction as 'asc' | 'desc');
                         }
-                      });
-                    }
+                      }
+                      return 0; // Equal if all criteria match
+                    });
+                  } else if (hasCreatedAt) {
+                    // Default sort by createdAt desc if no explicit sort but has timestamp
+                    newData = [...newData].sort((a, b) => {
+                      const aValue = a[createdAtField as keyof typeof a];
+                      const bValue = b[createdAtField as keyof typeof b];
+                      return compareValues(aValue, bValue, 'desc');
+                    });
                   }
                   
                   // Apply limit if specified
-                  if (currentLimit && currentLimit > 0) {
+                  if (currentLimit && currentLimit > 0) { // Use ref value
                     newData = newData.slice(0, currentLimit);
                   }
                   
@@ -869,6 +945,10 @@ export function createSuparismaHook<
             } else if (payload.eventType === 'UPDATE') {
               // Process update event 
               setData((prev) => {
+                // Access current options via refs
+                const currentOrderBy = orderByRef.current; 
+                const currentLimit = limitRef.current; // If needed for re-fetch logic on update
+
                 // Skip if search is active
                 if (isSearchingRef.current) {
                   return prev;
@@ -881,15 +961,57 @@ export function createSuparismaHook<
                     : item
                 );
                 
+                // Apply ordering again after update to ensure consistency
+                let sortedData = [...newData];
+                
+                // Apply ordering if specified
+                if (currentOrderBy) { // Use ref value
+                  // Convert orderBy to array format for consistency if it's an object
+                  const orderByArray = Array.isArray(currentOrderBy) 
+                    ? currentOrderBy 
+                    : [currentOrderBy];
+                    
+                  // Apply each sort in sequence
+                  sortedData = sortedData.sort((a, b) => {
+                    // Check each orderBy clause in sequence
+                    for (const orderByClause of orderByArray) {
+                      for (const [field, direction] of Object.entries(orderByClause)) {
+                        const aValue = a[field as keyof typeof a];
+                        const bValue = b[field as keyof typeof b];
+                        
+                        // Skip if values are equal and move to next criterion
+                        if (aValue === bValue) continue;
+                        
+                        // Use the compareValues function for proper type handling
+                        return compareValues(aValue, bValue, direction as 'asc' | 'desc');
+                      }
+                    }
+                    return 0; // Equal if all criteria match
+                  });
+                } else if (hasCreatedAt) {
+                  // Default sort by createdAt desc if no explicit sort but has timestamp
+                  sortedData = sortedData.sort((a, b) => {
+                    const aValue = a[createdAtField as keyof typeof a];
+                    const bValue = b[createdAtField as keyof typeof b];
+                    return compareValues(aValue, bValue, 'desc');
+                  });
+                }
+                
                 // Fetch the updated count after the data changes
                 // For updates, the count might not change but we fetch anyway to be consistent
                 setTimeout(() => fetchTotalCount(), 0);
                 
-                return newData;
+                return sortedData;
               });
             } else if (payload.eventType === 'DELETE') {
               // Process delete event
               setData((prev) => {
+                // Access current options via refs
+                const currentWhere = whereRef.current;
+                const currentOrderBy = orderByRef.current;
+                const currentLimit = limitRef.current;
+                const currentOffset = offsetRef.current;
+
                 // Skip if search is active
                 if (isSearchingRef.current) {
                   return prev;
@@ -908,21 +1030,61 @@ export function createSuparismaHook<
                 setTimeout(() => fetchTotalCount(), 0);
                 
                 // If we need to maintain the size with a limit
-                if (currentLimit && currentLimit > 0 && filteredData.length < currentSize && currentSize === currentLimit) {
+                if (currentLimit && currentLimit > 0 && filteredData.length < currentSize && currentSize === currentLimit) { // Use ref value
                   console.log(\`Record deleted with limit \${currentLimit}, will fetch additional record to maintain size\`);
                   
                   // Use setTimeout to ensure this state update completes first
                   setTimeout(() => {
                     findMany({
-                      where: currentWhere,
-                      orderBy: currentOrderBy,
-                      take: currentLimit,
-                      skip: currentOffset
+                      where: currentWhere, // Use ref value
+                      orderBy: currentOrderBy, // Use ref value
+                      take: currentLimit, // Use ref value
+                      skip: currentOffset // Use ref value (passed as skip to findMany)
                     });
                   }, 0);
+                  
+                  // Return the filtered data without resizing for now
+                  // The findMany call above will update the data later
+                  return filteredData;
                 }
                 
-                return filteredData;
+                // Re-apply ordering to maintain consistency
+                let sortedData = [...filteredData];
+                
+                // Apply ordering if specified
+                if (currentOrderBy) { // Use ref value
+                  // Convert orderBy to array format for consistency if it's an object
+                  const orderByArray = Array.isArray(currentOrderBy) 
+                    ? currentOrderBy 
+                    : [currentOrderBy];
+                    
+                  // Apply each sort in sequence
+                  sortedData = sortedData.sort((a, b) => {
+                    // Check each orderBy clause in sequence
+                    for (const orderByClause of orderByArray) {
+                      for (const [field, direction] of Object.entries(orderByClause)) {
+                        const aValue = a[field as keyof typeof a];
+                        const bValue = b[field as keyof typeof b];
+                        
+                        // Skip if values are equal and move to next criterion
+                        if (aValue === bValue) continue;
+                        
+                        // Use the compareValues function for proper type handling
+                        return compareValues(aValue, bValue, direction as 'asc' | 'desc');
+                      }
+                    }
+                    return 0; // Equal if all criteria match
+                  });
+                } else if (hasCreatedAt) {
+                  // Default sort by createdAt desc if no explicit sort but has timestamp
+                  sortedData = sortedData.sort((a, b) => {
+                    const aValue = a[createdAtField as keyof typeof a];
+                    const bValue = b[createdAtField as keyof typeof b];
+                    return compareValues(aValue, bValue, 'desc');
+                  });
+                }
+                
+                return sortedData;
               });
             }
           }
@@ -937,7 +1099,7 @@ export function createSuparismaHook<
       return () => {
         console.log(\`Unsubscribing from \${channelId}\`);
         if (channelRef.current) {
-          channelRef.current.unsubscribe();
+          supabase.removeChannel(channelRef.current); // Correct way to remove channel
           channelRef.current = null;
         }
         
@@ -946,7 +1108,7 @@ export function createSuparismaHook<
           searchTimeoutRef.current = null;
         }
       };
-    }, [realtime, channelName, computedFilter]);
+    }, [realtime, channelName, tableName, initialLoadRef]); // Removed where, orderBy, limit, offset from deps
 
     // Create a memoized options object to prevent unnecessary re-renders
     const optionsRef = useRef({ where, orderBy, limit, offset });

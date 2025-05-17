@@ -1,4 +1,4 @@
-# Suparisma  
+# Suparisma
 Supabase + Prisma!
 
 ![Suparisma Logo](https://vg-bunny-cdn.b-cdn.net/random/suparisma-banner.png)
