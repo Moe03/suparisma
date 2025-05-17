@@ -11,6 +11,9 @@
 		"generate-hooks": "npx prisma generate && npx prisma db push && ts-node --transpile-only src/index.ts",
 		"run-next-example": "cd src/examples/with-next && npm run dev"
 	},
+	"bin": {
+		"suparisma": "dist/index.js"
+	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.49.4",
 		"dotenv": "^16.5.0",

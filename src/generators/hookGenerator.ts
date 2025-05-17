@@ -114,7 +114,7 @@ export const ${HOOK_NAME_PREFIX}${modelName} = createSuparismaHook<
   tableName: '${tableName}',
   hasCreatedAt: ${hasCreatedAt},
   hasUpdatedAt: ${hasUpdatedAt}${searchConfig}${defaultValuesConfig}${fieldNamesConfig}
-}) as (options?: Use${modelName}Options) => ${modelName}HookApi;
+}) as unknown as (options?: Use${modelName}Options) => ${modelName}HookApi;
 `;
 
   // Output to the HOOKS_DIR

@@ -390,6 +390,9 @@ export function createSuparismaHook<
     const [error, setError] = useState<Error | null>(null);
     const [loading, setLoading] = useState<boolean>(false);
     
+    // This is the total count, unaffected by pagination limits
+    const [count, setCount] = useState<number>(0);
+    
     // Search state
     const [searchQueries, setSearchQueries] = useState<SearchQuery[]>([]);
     const [searchLoading, setSearchLoading] = useState<boolean>(false);
@@ -398,6 +401,34 @@ export function createSuparismaHook<
     const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isSearchingRef = useRef<boolean>(false);
+
+    // Function to fetch the total count from Supabase with current filters
+    const fetchTotalCount = useCallback(async () => {
+      try {
+        // Skip count updates during search
+        if (isSearchingRef.current) return;
+        
+        let countQuery = supabase.from(tableName).select('*', { count: 'exact', head: true });
+        
+        // Apply where conditions if provided
+        if (where) {
+          countQuery = applyFilter(countQuery, where);
+        }
+        
+        const { count: totalCount, error: countError } = await countQuery;
+        
+        if (!countError) {
+          setCount(totalCount || 0);
+        }
+      } catch (err) {
+        console.error(\`Error fetching count for \${tableName}:\`, err);
+      }
+    }, [where, tableName]);
+    
+    // Update total count whenever where filter changes
+    useEffect(() => {
+      fetchTotalCount();
+    }, [fetchTotalCount]);
     
     // Create the search state object with all required methods
     const search: SearchState = {
@@ -544,6 +575,9 @@ export function createSuparismaHook<
             });
           }
           
+          // Set count directly for search results
+          setCount(results.length);
+          
           // Apply ordering if needed
           if (orderBy) {
             const orderEntries = Object.entries(orderBy);
@@ -563,16 +597,17 @@ export function createSuparismaHook<
           }
           
           // Apply pagination if needed
+          let paginatedResults = results;
           if (limit && limit > 0) {
-            results = results.slice(0, limit);
+            paginatedResults = results.slice(0, limit);
           }
           
           if (offset && offset > 0) {
-            results = results.slice(offset);
+            paginatedResults = paginatedResults.slice(offset);
           }
           
           // Update data with search results
-          setData(results);
+          setData(paginatedResults);
         } catch (err) {
           console.error('Search error:', err);
           setError(err as Error);
@@ -653,6 +688,12 @@ export function createSuparismaHook<
         // Only update data if not currently searching
         if (!isSearchingRef.current) {
           setData(typedData);
+          
+          // If the where filter changed, update the total count
+          if (JSON.stringify(params?.where) !== JSON.stringify(where)) {
+            // Use our standard count fetching function instead of duplicating logic
+            setTimeout(() => fetchTotalCount(), 0);
+          }
         }
         
         return { data: typedData, error: null };
@@ -663,7 +704,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [fetchTotalCount, where, tableName, hasCreatedAt, createdAtField]);
 
     /**
      * Find a single record by its unique identifier (usually ID).
@@ -816,6 +857,9 @@ export function createSuparismaHook<
                     newData = newData.slice(0, currentLimit);
                   }
                   
+                  // Fetch the updated count after the data changes
+                  setTimeout(() => fetchTotalCount(), 0);
+                  
                   return newData;
                 } catch (error) {
                   console.error('Error processing INSERT event:', error);
@@ -823,19 +867,25 @@ export function createSuparismaHook<
                 }
               });
             } else if (payload.eventType === 'UPDATE') {
-              // Process update event
+              // Process update event 
               setData((prev) => {
                 // Skip if search is active
                 if (isSearchingRef.current) {
                   return prev;
                 }
                 
-                return prev.map((item) =>
+                const newData = prev.map((item) =>
                   // @ts-ignore: Supabase typing issue
                   'id' in item && 'id' in payload.new && item.id === payload.new.id 
                     ? (payload.new as TWithRelations) 
                     : item
                 );
+                
+                // Fetch the updated count after the data changes
+                // For updates, the count might not change but we fetch anyway to be consistent
+                setTimeout(() => fetchTotalCount(), 0);
+                
+                return newData;
               });
             } else if (payload.eventType === 'DELETE') {
               // Process delete event
@@ -853,6 +903,9 @@ export function createSuparismaHook<
                   // @ts-ignore: Supabase typing issue
                   return !('id' in item && 'id' in payload.old && item.id === payload.old.id);
                 });
+                
+                // Fetch the updated count after the data changes
+                setTimeout(() => fetchTotalCount(), 0);
                 
                 // If we need to maintain the size with a limit
                 if (currentLimit && currentLimit > 0 && filteredData.length < currentSize && currentSize === currentLimit) {
@@ -938,6 +991,9 @@ export function createSuparismaHook<
             take: limit,
             skip: offset
           });
+          
+          // Also update the total count
+          fetchTotalCount();
         }
         return;
       }
@@ -950,7 +1006,10 @@ export function createSuparismaHook<
         take: limit,
         skip: offset
       });
-    }, [findMany, where, orderBy, limit, offset, optionsChanged]);
+      
+      // Initial count fetch
+      fetchTotalCount();
+    }, [findMany, where, orderBy, limit, offset, optionsChanged, fetchTotalCount]);
 
     /**
      * Create a new record with the provided data.
@@ -1027,6 +1086,9 @@ export function createSuparismaHook<
         
         if (error) throw error;
         
+        // Update the total count after a successful creation
+        setTimeout(() => fetchTotalCount(), 0);
+        
         // Return created record
         return { data: result?.[0] as TWithRelations, error: null };
       } catch (err: any) {
@@ -1036,7 +1098,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [fetchTotalCount]);
 
     /**
      * Update an existing record identified by a unique identifier.
@@ -1101,6 +1163,11 @@ export function createSuparismaHook<
         
         if (error) throw error;
         
+        // Update the total count after a successful update
+        // This is for consistency with other operations, and because
+        // updates can sometimes affect filtering based on updated values
+        setTimeout(() => fetchTotalCount(), 0);
+        
         // Return updated record
         return { data: data?.[0] as TWithRelations, error: null };
       } catch (err: any) {
@@ -1110,7 +1177,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [fetchTotalCount]);
 
     /**
      * Delete a record by its unique identifier.
@@ -1163,6 +1230,9 @@ export function createSuparismaHook<
         
         if (error) throw error;
         
+        // Update the total count after a successful deletion
+        setTimeout(() => fetchTotalCount(), 0);
+        
         // Return the deleted record
         return { data: recordToDelete as TWithRelations, error: null };
       } catch (err: any) {
@@ -1172,7 +1242,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [fetchTotalCount]);
 
     /**
      * Delete multiple records matching the filter criteria.
@@ -1229,6 +1299,9 @@ export function createSuparismaHook<
         
         if (deleteError) throw deleteError;
         
+        // Update the total count after a successful bulk deletion
+        setTimeout(() => fetchTotalCount(), 0);
+        
         // Return the count of deleted records
         return { count: recordsToDelete.length, error: null };
       } catch (err: any) {
@@ -1238,7 +1311,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [fetchTotalCount]);
 
     /**
      * Find the first record matching the filter criteria.
@@ -1321,21 +1394,13 @@ export function createSuparismaHook<
 
     /**
      * Count the number of records matching the filter criteria.
+     * This is a manual method to get the count with a different filter
+     * than the main hook's filter.
      * 
      * @param params - Query parameters for filtering
      * @returns A promise with the count of matching records
-     * 
-     * @example
-     * // Count all users
-     * const count = await users.count();
-     * 
-     * @example
-     * // Count active users
-     * const activeCount = await users.count({
-     *   where: { active: true }
-     * });
      */
-    const count = useCallback(async (params?: {
+    const countFn = useCallback(async (params?: {
       where?: TWhereInput;
     }): Promise<number> => {
       try {
@@ -1404,6 +1469,7 @@ export function createSuparismaHook<
       data,
       error,
       loading,
+      count, // Now including count as a reactive state value
       
       // Finder methods
       findUnique,
@@ -1416,9 +1482,6 @@ export function createSuparismaHook<
       delete: deleteRecord,
       deleteMany,
       upsert,
-      
-      // Utilities
-      count,
       
       // Manual refresh
       refresh

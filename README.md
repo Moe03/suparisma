@@ -2,6 +2,20 @@
 
 A React hook generator for Supabase that is driven by your Prisma schema, giving you type-safe, real-time enabled hooks to interact with your Supabase database.
 
+## Why?
+CRUD typesafetey with Supabase should be easy, currently it is not with a lot of issues that can rise easily espeically if you're not using Prisma.
+
+Prisma solved supabase typesafely issue on the server, and TRPC helped making the client even more type safe but realtime capabilites from the DB to the browser was still lacking and that lead to a lot of unnecessary GET, POST requests if you just simply need to have realtime support.
+
+Supabase's rules are also powerful and if you're using TRPC or any server solution you're easily missing out on them.
+
+This package solves all this focusing, it lets you:
+- Create typesafe CRUD hooks for all your supabase tables.
+- Enables you to easily paginate, search and query in each table.
+- Uses Prisma and Supabase official SDKs.
+- Respects Supabase's auth rules enabling an easy way to secure your DB.
+- Works with any React env. like NextJS/Remix/Tanstack Start/Router/etc..
+
 ## Features
 
 - 🚀 **Auto-generated React hooks** based on your Prisma schema
@@ -18,6 +32,22 @@ npm install suparisma
 yarn add suparisma
 # or
 pnpm install suparisma
+```
+
+## ENV Variables 
+You must set the following ENV variables to properly install suparisma:
+
+```bash
+# Supabase, Prisma specific (Required)
+DATABASE_URL=""
+DIRECT_URL=""
+# (Public keys) Should be exposed to browser
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+
+# Suparisma specific (Optional)
+SUPARISMA_OUTPUT_DIR=
+SUPARISMA_PRISMA_SCHEMA_PATH=""
 ```
 
 ## Basic Usage

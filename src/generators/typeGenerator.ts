@@ -311,6 +311,18 @@ export interface ${modelName}HookApi {
    */
   loading: boolean;
   
+  /**
+   * The current count of records matching the filter criteria.
+   * This automatically updates with the data, including realtime updates.
+   * It always reflects the current length of the data array, respecting any filters.
+   * 
+   * @example
+   * // Display the count in the UI
+   * const { count } = ${modelName.toLowerCase()};
+   * return <div>Total records: {count}</div>;
+   */
+  count: number;
+  
   ${
     searchFields.length > 0
       ? `/**
@@ -529,26 +541,6 @@ ${createInputProps
     update: ${modelName}UpdateInput;
     create: ${modelName}CreateInput;
   }) => ${modelName}SingleResult;
-  
-  /**
-   * Count the number of ${modelName} records matching the filter criteria.
-   * 
-   * @param params - Optional filter parameters
-   * @returns A promise with the count of matching records
-   * 
-   * @example
-   * // Count all ${modelName.toLowerCase()} records
-   * const count = await ${modelName.toLowerCase()}.count();
-   * 
-   * @example
-   * // Count active ${modelName.toLowerCase()} records
-   * const activeCount = await ${modelName.toLowerCase()}.count({
-   *   where: { active: true }
-   * });
-   */
-  count: (params?: {
-    where?: ${modelName}WhereInput;
-  }) => Promise<number>;
   
   /**
    * Manually refresh the data with current filter settings.
