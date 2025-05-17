@@ -39,7 +39,9 @@ A powerful, typesafe React hook generator for Supabase, driven by your Prisma sc
 
 ## Why Suparisma?
 
-Achieving typesafe CRUD operations with Supabase can be challenging, especially without tools like Prisma. While Prisma solves typesafety on the server side, and tRPC improves client-side type safety, realtime capabilities from the database to the browser often remain a pain point, leading to unnecessary API requests.
+I love Supabase and Prisma and use them extensively in my projects, but combining them effectively for frontend development has always been frustrating. The typical solutions involve either setting up tRPC with constant refetching or implementing complex websocket solutions that often feel like overkill.
+
+While Prisma gives me perfect type safety on the server, and Supabase offers great realtime capabilities, bridging these two worlds has remained a pain point. I've struggled to maintain type safety across the stack while efficiently leveraging Supabase's realtime features without resorting to excessive API calls or overly complex architectures.
 
 Suparisma bridges this gap by:
 
