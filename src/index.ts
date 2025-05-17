@@ -5,7 +5,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 // Import configuration
-import { PRISMA_SCHEMA_PATH, OUTPUT_DIR } from './config';
+import { PRISMA_SCHEMA_PATH, OUTPUT_DIR, TYPES_DIR, HOOKS_DIR, UTILS_DIR } from './config';
 
 // Import type definitions
 import { ProcessedModelInfo } from './types';
@@ -16,6 +16,36 @@ import { generateCoreFile } from './generators/coreGenerator';
 import { generateModelTypesFile } from './generators/typeGenerator';
 import { generateModelHookFile } from './generators/hookGenerator';
 import { generateMainIndexFile } from './generators/indexGenerator';
+import { generateSupabaseClientFile } from './generators/supabaseClientGenerator';
+
+/**
+ * Checks for essential environment variables and throws an error if any are missing.
+ */
+function checkEnvironmentVariables() {
+  const requiredEnvVars = [
+    'DATABASE_URL',
+    'NEXT_PUBLIC_SUPABASE_URL',
+    'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  ];
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+  if (missingVars.length > 0) {
+    let errorMessage = 'Error: Missing required environment variables:\n';
+    missingVars.forEach(varName => {
+      errorMessage += `- ${varName}: This variable is essential for the generator to function correctly. `;      
+      if (varName === 'DATABASE_URL') {
+        errorMessage += 'It is used by Prisma to connect to your database. Please ensure it is set in your .env file or as an environment variable (e.g., postgresql://user:password@host:port/database).\n';
+      } else if (varName === 'NEXT_PUBLIC_SUPABASE_URL') {
+        errorMessage += 'This is your Supabase project URL. It is required by the Supabase client. Please set it in your .env file or as an environment variable (e.g., https://your-project-id.supabase.co).\n';
+      } else if (varName === 'NEXT_PUBLIC_SUPABASE_ANON_KEY') {
+        errorMessage += 'This is your Supabase project public anonymous key. It is required by the Supabase client. Please set it in your .env file or as an environment variable.\n';
+      }
+    });
+    errorMessage += '\nPlease add these variables to your .env file or ensure they are available in your environment and try again.';
+    throw new Error(errorMessage);
+  }
+  console.log('✅ All required environment variables are set.');
+}
 
 /**
  * Extracts comments from a Prisma schema
@@ -125,14 +155,14 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
     `);
 
     console.log(`📋 Found ${allTables.length} tables in the 'public' schema`);
-    allTables.forEach((t) => console.log(`   - ${t.table_name}`));
+    allTables.forEach((t: any) => console.log(`   - ${t.table_name}`));
 
     // DIRECT APPROACH: Hardcode SQL for each known Prisma model type
     for (const model of modelInfos) {
       try {
         // Find the matching table regardless of case
         const matchingTable = allTables.find(
-          (t) => t.table_name.toLowerCase() === model.tableName.toLowerCase()
+          (t: any) => t.table_name.toLowerCase() === model.tableName.toLowerCase()
         );
 
         if (!matchingTable) {
@@ -260,12 +290,23 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
  */
 async function main() {
   try {
-    console.log('Generating Supabase realtime hooks with improved architecture...');
+    console.log('🚀 Starting Suparisma hook generation...');
+    
+    // Check for required environment variables first
+    checkEnvironmentVariables();
 
-    // Ensure output directory exists
-    if (!fs.existsSync(OUTPUT_DIR)) {
-      fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-    }
+    console.log(`Prisma schema path: ${PRISMA_SCHEMA_PATH}`);
+    console.log(`Output directory: ${OUTPUT_DIR}`);
+
+    // Ensure output directories exist
+    [OUTPUT_DIR, TYPES_DIR, HOOKS_DIR, UTILS_DIR].forEach(dir => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    });
+
+    // Generate Supabase client file first
+    generateSupabaseClientFile();
 
     // First, generate the core hook factory
     generateCoreFile();
@@ -287,7 +328,7 @@ async function main() {
     // Generate the main module file
     generateMainIndexFile(modelInfos);
 
-    console.log('✅ Successfully generated all suparisma hooks!');
+    console.log(`✅ Successfully generated all suparisma hooks and types in "${OUTPUT_DIR}"!`);
   } catch (error) {
     console.error('❌ Error generating hooks:', error);
     process.exit(1);
