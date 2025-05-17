@@ -1,7 +1,7 @@
 # Suparisma  
 Supabase + Prisma!
 
-![Suparisma Logo](https://via.placeholder.com/1200x300/0d1117/60a5fa?text=Suparisma)
+![Suparisma Logo](https://vg-bunny-cdn.b-cdn.net/random/suparisma-banner.png)
 
 A powerful, typesafe React hook generator for Supabase, driven by your Prisma schema. Suparisma provides you with real-time enabled CRUD hooks to interact with your Supabase database without writing any boilerplate code.
 
