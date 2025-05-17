@@ -89,11 +89,11 @@ datasource db {
 }
 
 // Realtime is enabled by default
-model User {
+model Thing {
   id        String   @id @default(uuid())
-  email     String   @unique
   name      String?  // @enableSearch
-  role      String   @default("user")
+  someNumber Int     @default(0)
+  someEnum  String   @default("ONE")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -128,31 +128,31 @@ npx suparisma generate
 ```tsx
 import useSuparisma from './src/suparisma/generated';
 
-function UserList() {
+function ThingList() {
   const { 
-    data: users,
+    data: things,
     loading,
     error,
-    create: createUser
-  } = useSuparisma.user();
+    create: createThing
+  } = useSuparisma.thing();
   
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error.message}</div>;
   
   return (
     <div>
-      <h1>Users</h1>
+      <h1>Things</h1>
       <ul>
-        {users?.map(user => (
-          <li key={user.id}>{user.name} ({user.email})</li>
+        {things?.map(thing => (
+          <li key={thing.id}>{thing.name} (Number: {thing.someNumber})</li>
         ))}
       </ul>
       
-      <button onClick={() => createUser({ 
-        name: "New User", 
-        email: `user${Date.now()}@example.com`
+      <button onClick={() => createThing({ 
+        name: "New Thing", 
+        someNumber: Math.floor(Math.random() * 100)
       })}>
-        Add User
+        Add Thing
       </button>
     </div>
   );
@@ -187,20 +187,22 @@ const {
 #### Creating Records
 
 ```tsx
-const { create: createUser } = useSuparisma.user();
+const { create: createThing } = useSuparisma.thing();
 
 // Create a single record
-await createUser({ name: "John Doe", email: "john@example.com" });
+await createThing({ name: "Cool Thing", someNumber: 42 });
 
 // Create with nested data if your schema supports it
-await createUser({
-  name: "John Doe",
-  email: "john@example.com",
-  posts: {
-    create: [
-      { title: "Hello World", content: "My first post" }
-    ]
-  }
+await createThing({
+  name: "Cool Thing",
+  someNumber: 42,
+  // If you had relations defined:
+  // tags: {
+  //   create: [
+  //     { name: "Important" },
+  //     { name: "Featured" }
+  //   ]
+  // }
 });
 ```
 
@@ -208,15 +210,15 @@ await createUser({
 
 ```tsx
 // Get all records with default pagination (first 10)
-const { data: users } = useSuparisma.user();
+const { data: things } = useSuparisma.thing();
 
 // With filtering
-const { data: admins } = useSuparisma.user({
-  where: { role: "admin" }
+const { data: importantThings } = useSuparisma.thing({
+  where: { someEnum: "ONE" }
 });
 
 // With custom pagination
-const { data: recentUsers } = useSuparisma.user({
+const { data: recentThings } = useSuparisma.thing({
   orderBy: { createdAt: "desc" },
   limit: 5
 });
@@ -225,31 +227,31 @@ const { data: recentUsers } = useSuparisma.user({
 #### Updating Records
 
 ```tsx
-const { update: updateUser } = useSuparisma.user();
+const { update: updateThing } = useSuparisma.thing();
 
 // Update by ID
-await updateUser({ 
-  where: { id: "user-id-123" },
-  data: { name: "Updated Name" }
+await updateThing({ 
+  where: { id: "thing-id-123" },
+  data: { name: "Updated Thing" }
 });
 
 // Update many records matching a filter
-await updateUser({
-  where: { role: "guest" },
-  data: { role: "user" }
+await updateThing({
+  where: { someEnum: "ONE" },
+  data: { someEnum: "TWO" }
 });
 ```
 
 #### Deleting Records
 
 ```tsx
-const { delete: deleteUser } = useSuparisma.user();
+const { delete: deleteThing } = useSuparisma.thing();
 
 // Delete by ID
-await deleteUser({ id: "user-id-123" });
+await deleteThing({ id: "thing-id-123" });
 
 // Delete with more complex filter
-await deleteUser({ email: "old@example.com" });
+await deleteThing({ someNumber: 0 });
 ```
 
 ### Realtime Updates
@@ -258,7 +260,7 @@ Realtime updates are enabled by default for all models. The `data` will automati
 
 ```tsx
 // Enable realtime (default)
-const { data: users } = useSuparisma.user({ realtime: true });
+const { data: things } = useSuparisma.thing({ realtime: true });
 
 // Disable realtime for this particular hook instance
 const { data: logsNoRealtime } = useSuparisma.auditLog({ realtime: false });
@@ -270,23 +272,23 @@ Filter data using Prisma-like syntax:
 
 ```tsx
 // Basic equality
-const { data } = useSuparisma.user({ 
-  where: { role: "admin" } 
+const { data } = useSuparisma.thing({ 
+  where: { someEnum: "ONE" } 
 });
 
 // Multiple conditions (AND)
-const { data } = useSuparisma.user({
+const { data } = useSuparisma.thing({
   where: {
-    role: "admin",
-    email: "admin@example.com"
+    someEnum: "ONE",
+    someNumber: { gt: 10 }
   }
 });
 
 // Using operators
-const { data } = useSuparisma.user({
+const { data } = useSuparisma.thing({
   where: {
     createdAt: { gte: new Date('2023-01-01') },
-    name: { contains: "John" }
+    name: { contains: "cool" }
   }
 });
 ```
@@ -297,14 +299,14 @@ Sort data using Prisma-like ordering:
 
 ```tsx
 // Single field sort
-const { data } = useSuparisma.user({
+const { data } = useSuparisma.thing({
   orderBy: { createdAt: "desc" }
 });
 
 // Multiple field sort
-const { data } = useSuparisma.user({
+const { data } = useSuparisma.thing({
   orderBy: [
-    { role: "asc" },
+    { someEnum: "asc" },
     { createdAt: "desc" }
   ]
 });
@@ -312,24 +314,23 @@ const { data } = useSuparisma.user({
 
 ### Pagination
 
-Suparisma supports both offset-based and cursor-based pagination:
+Suparisma supports offset-based pagination:
 
 ```tsx
 // Offset-based pagination (page 1, 10 items per page)
-const { data } = useSuparisma.user({
-  skip: 0,
+const { data } = useSuparisma.thing({
+  offset: 0,
   limit: 10
 });
 
 // Next page
-const { data: page2 } = useSuparisma.user({
-  skip: 10,
+const { data: page2 } = useSuparisma.thing({
+  offset: 10,
   limit: 10
 });
 
 // Get total count
-const { data, count } = useSuparisma.user();
-const totalItems = await count();
+const { data, count } = useSuparisma.thing();
 ```
 
 ### Search Functionality
@@ -337,10 +338,10 @@ const totalItems = await count();
 For fields annotated with `// @enableSearch`, you can use full-text search:
 
 ```tsx
-// Search users by name
-const { data: searchResults } = useSuparisma.user({
+// Search things by name
+const { data: searchResults } = useSuparisma.thing({
   search: {
-    query: "john",
+    query: "cool",
     fields: ["name"]
   }
 });
@@ -360,11 +361,11 @@ model AuditLog {
 
 // Field level annotations
 
-model User {
+model Thing {
   id        String  @id @default(uuid())
-  email     String  @unique
   name      String? // @enableSearch - Enable full-text search for this field
-  bio       String? // @enableSearch - Can add to multiple fields
+  description String? // @enableSearch - Can add to multiple fields
+  someNumber Int
 }
 ```
 
@@ -612,49 +613,41 @@ You can combine Suparisma hooks with your own custom hooks for advanced use case
 import { useState } from 'react';
 import useSuparisma from '../generated';
 
-// Custom hook for user authentication and management
-function useUserSystem() {
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+// Custom hook for managing important things
+function useImportantThings() {
+  const [category, setCategory] = useState<string>("ONE");
   
   const {
-    data: users,
+    data: things,
     loading,
     error,
-    create: createUser,
-    update: updateUser,
-  } = useSuparisma.user({
-    where: currentUserId ? { id: currentUserId } : undefined,
-    limit: 1
+    create: createThing,
+    update: updateThing,
+  } = useSuparisma.thing({
+    where: { someEnum: category },
+    orderBy: { someNumber: "desc" }
   });
 
-  const currentUser = users?.[0];
-  
-  const login = async (email: string, password: string) => {
-    // Your auth logic here
-    // ...
-    setCurrentUserId('user-id-123');
-  };
-  
-  const logout = () => {
-    setCurrentUserId(null);
-  };
-  
-  const updateProfile = (data: any) => {
-    if (!currentUserId) return Promise.reject('Not logged in');
-    return updateUser({
-      where: { id: currentUserId },
-      data
+  const addThing = (name: string, number: number) => {
+    return createThing({
+      name,
+      someNumber: number,
+      someEnum: category
     });
   };
   
+  const changeCategory = (newCategory: string) => {
+    setCategory(newCategory);
+  };
+  
   return {
-    currentUser,
+    things,
     loading,
     error,
-    login,
-    logout,
-    updateProfile,
-    createUser
+    addThing,
+    updateThing,
+    currentCategory: category,
+    changeCategory
   };
 }
 ```
@@ -664,18 +657,18 @@ function useUserSystem() {
 Handle errors gracefully with try/catch blocks:
 
 ```tsx
-const { create, error } = useSuparisma.user();
+const { create, error } = useSuparisma.thing();
 
 async function handleSubmit(event) {
   event.preventDefault();
   try {
     const result = await create({
       name: formData.name,
-      email: formData.email
+      someNumber: parseInt(formData.number)
     });
     console.log('Created!', result);
   } catch (err) {
-    console.error('Failed to create user:', err);
+    console.error('Failed to create thing:', err);
   }
 }
 ```
@@ -690,10 +683,10 @@ Optimize performance by:
 
 ```tsx
 // Only get what you need
-const { data } = useSuparisma.user({
+const { data } = useSuparisma.thing({
   realtime: false, // Disable realtime if not needed
-  where: { active: true }, // Only get active users
-  select: { id: true, name: true }, // Only select needed fields
+  where: { someEnum: "ONE" }, // Only get specific items
+  select: { id: true, name: true, someNumber: true }, // Only select needed fields
   limit: 10 // Limit results
 });
 ```
@@ -707,7 +700,7 @@ const { data } = useSuparisma.user({
 | `where` | `object` | Filter conditions for the query |
 | `orderBy` | `object \| array` | Sorting options |
 | `limit` | `number` | Maximum number of records to return |
-| `offset` | `number` | Number of records to skip |
+| `offset` | `number` | Number of records to skip for pagination |
 | `realtime` | `boolean` | Enable/disable real-time updates |
 | `select` | `object` | Fields to include in the response |
 | `include` | `object` | Related records to include |

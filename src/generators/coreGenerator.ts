@@ -675,7 +675,7 @@ export function createSuparismaHook<
         }
         
         // Apply offset if provided (for pagination)
-        if (params?.skip) {
+        if (params?.skip !== undefined && params.skip >= 0) {
           query = query.range(params.skip, params.skip + (params.take || 10) - 1);
         }
         
