@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { OUTPUT_DIR, HOOK_NAME_PREFIX } from '../config';
+import { HOOKS_DIR, HOOK_NAME_PREFIX } from '../config';
 import { ProcessedModelInfo } from '../types';
 
 /**
@@ -12,8 +12,16 @@ import { ProcessedModelInfo } from '../types';
  * @param modelInfo - Processed model information with metadata
  */
 export function generateModelHookFile(modelInfo: ProcessedModelInfo): void {
-  const { modelName, tableName, hasCreatedAt, hasUpdatedAt, searchFields, defaultValues } =
-    modelInfo;
+  const { 
+    modelName, 
+    tableName, 
+    hasCreatedAt, 
+    hasUpdatedAt, 
+    searchFields, 
+    defaultValues,
+    createdAtField = 'createdAt', // Default to camelCase but use actual field name if provided
+    updatedAtField = 'updatedAt'  // Default to camelCase but use actual field name if provided
+  } = modelInfo;
 
   // Configure search fields if available
   const searchConfig =
@@ -26,11 +34,16 @@ export function generateModelHookFile(modelInfo: ProcessedModelInfo): void {
     ? `,\n  // Default values from schema\n  defaultValues: ${JSON.stringify(defaultValues)}`
     : '';
 
+  // Add createdAt/updatedAt field name config
+  const fieldNamesConfig = 
+    `${hasCreatedAt ? `,\n  // Field name for createdAt from Prisma schema\n  createdAtField: "${createdAtField}"` : ''}${hasUpdatedAt ? `,\n  // Field name for updatedAt from Prisma schema\n  updatedAtField: "${updatedAtField}"` : ''}`;
+
   // Generate the hook content
   const hookContent = `// THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
 // Edit the generator script instead: scripts/generate-realtime-hooks.ts
 
-import { createSuparismaHook } from './core';
+// Corrected import for core hook factory
+import { createSuparismaHook } from '../utils/core';
 import type {
   ${modelName}WithRelations,
   ${modelName}CreateInput,
@@ -40,7 +53,7 @@ import type {
   ${modelName}OrderByInput,
   ${modelName}HookApi,
   Use${modelName}Options
-} from './${modelName}Types';
+} from '../types/${modelName}Types';
 
 /**
  * A Prisma-like hook for interacting with ${modelName} records with real-time capabilities.
@@ -59,7 +72,7 @@ import type {
  * // With filtering and ordering
  * const ${modelName.toLowerCase()} = ${HOOK_NAME_PREFIX}${modelName}({
  *   where: { active: true },
- *   orderBy: { created_at: 'desc' },
+ *   orderBy: { createdAt: 'desc' }, // Note: Using actual Prisma field name
  *   limit: 10
  * });
  * 
@@ -100,11 +113,17 @@ export const ${HOOK_NAME_PREFIX}${modelName} = createSuparismaHook<
 >({
   tableName: '${tableName}',
   hasCreatedAt: ${hasCreatedAt},
-  hasUpdatedAt: ${hasUpdatedAt}${searchConfig}${defaultValuesConfig}
+  hasUpdatedAt: ${hasUpdatedAt}${searchConfig}${defaultValuesConfig}${fieldNamesConfig}
 }) as (options?: Use${modelName}Options) => ${modelName}HookApi;
 `;
 
-  const outputPath = path.join(OUTPUT_DIR, `${HOOK_NAME_PREFIX}${modelName}.ts`);
+  // Output to the HOOKS_DIR
+  const outputPath = path.join(HOOKS_DIR, `${HOOK_NAME_PREFIX}${modelName}.ts`);
+  
+  if (!fs.existsSync(HOOKS_DIR)) {
+    fs.mkdirSync(HOOKS_DIR, { recursive: true });
+  }
+
   fs.writeFileSync(outputPath, hookContent);
   console.log(`Generated hook for ${modelName} at ${outputPath}`);
 }

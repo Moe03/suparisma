@@ -1,22 +1,25 @@
 import fs from 'fs';
 import path from 'path';
-import { OUTPUT_DIR } from '../config'; // Assuming OUTPUT_DIR is defined in config.ts
+import { UTILS_DIR } from '../config'; // Ensure this is UTILS_DIR
 
 export function generateSupabaseClientFile() {
   const supabaseClientContent = `// THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
-  // import { createClient } from '@supabase/supabase-js';
 
+import { createClient } from '@supabase/supabase-js';
+
+console.log(\`NEXT_PUBLIC_SUPABASE_URL: \${process.env.NEXT_PUBLIC_SUPABASE_URL}\`);
+console.log(\`NEXT_PUBLIC_SUPABASE_ANON_KEY: \${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}\`);
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 `;
 
-  const outputPath = path.join(OUTPUT_DIR, 'supabase-client-generated.ts');
+  // Output to the UTILS_DIR
+  const outputPath = path.join(UTILS_DIR, 'supabase-client.ts');
 
-  // Ensure the output directory exists
-  if (!fs.existsSync(OUTPUT_DIR)) {
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  if (!fs.existsSync(UTILS_DIR)) {
+    fs.mkdirSync(UTILS_DIR, { recursive: true });
   }
 
   fs.writeFileSync(outputPath, supabaseClientContent);

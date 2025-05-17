@@ -1,6 +1,7 @@
 // THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
 // Edit the generator script instead: scripts/generate-realtime-hooks.ts
 
+// Corrected import for core hook factory
 import { createSuparismaHook } from '../utils/core';
 import type {
   UserWithRelations,

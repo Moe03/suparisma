@@ -49,7 +49,7 @@ function checkEnvironmentVariables() {
 
 /**
  * Extracts comments from a Prisma schema
- * Looks for // @enableRealtime and // @enableSearch
+ * Looks for // @disableRealtime (to opt out) and // @enableSearch
  */
 interface ModelInfo {
   name: string;
@@ -67,7 +67,7 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
     const modelInfos: ModelInfo[] = [];
 
     // Regular expression to match model definitions with comments
-    const modelRegex = /(?:\/\/\s*@enableRealtime\s*)?\s*model\s+(\w+)\s*{([\s\S]*?)}/g;
+    const modelRegex = /(?:\/\/\s*@disableRealtime\s*)?\s*model\s+(\w+)\s*{([\s\S]*?)}/g;
     let modelMatch;
 
     while ((modelMatch = modelRegex.exec(schemaContent)) !== null) {
@@ -81,8 +81,9 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
         ? modelMatch[0].match(/@map\s*\(\s*["'](.+?)["']\s*\)/)?.at(1) || modelName
         : modelName;
 
-      // Check if model has @enableRealtime comment
-      const enableRealtime = modelMatch[0].includes('// @enableRealtime');
+      // Check if model has @disableRealtime comment
+      // Default is to enable realtime unless explicitly disabled
+      const enableRealtime = !modelMatch[0].includes('// @disableRealtime');
 
       // Find fields with @enableSearch comment
       const searchFields: Array<{ name: string; type: string }> = [];
@@ -115,7 +116,7 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
 
 /**
  * Configure database tables for proper realtime functionality and search
- * 1. Sets REPLICA IDENTITY FULL and enables realtime for models with @enableRealtime
+ * 1. Sets REPLICA IDENTITY FULL and enables realtime for all models (unless they have @disableRealtime)
  * 2. Creates search functions for fields with @enableSearch
  */
 async function configurePrismaTablesForSuparisma(schemaPath: string) {
@@ -129,10 +130,9 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
     // Get direct PostgreSQL connection URL
     const directUrl = process.env.DIRECT_URL;
     if (!directUrl) {
-      console.warn(
-        '⚠️ DIRECT_URL environment variable not found. Skipping database configuration.'
+      throw new Error(
+        '❌ Error: DIRECT_URL environment variable not found. This is required for database configuration (e.g., setting up realtime). Please define it in your .env file or as an environment variable and try again. This should be a direct PostgreSQL connection string.\n'
       );
-      return;
     }
 
     // Analyze Prisma schema for models, realtime and search annotations
@@ -173,6 +173,7 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
         // Use the exact case of the table as it exists in the database
         const actualTableName = matchingTable.table_name;
         console.log(`🔍 Model ${model.name} -> Actual table: ${actualTableName}`);
+        console.log(`ℹ️ Model ${model.name}: enableRealtime is ${model.enableRealtime}`);
 
         if (model.enableRealtime) {
           // Explicitly use double quotes for mixed case identifiers
@@ -184,10 +185,10 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
           // }
 
           // Directly add the table to Supabase Realtime publication
+          const alterPublicationQuery = `ALTER PUBLICATION supabase_realtime ADD TABLE "${actualTableName}";`;
+          console.log(`ℹ️ Executing SQL: ${alterPublicationQuery}`);
           try {
-            await pool.query(`
-              ALTER PUBLICATION supabase_realtime ADD TABLE "${actualTableName}";
-            `);
+            await pool.query(alterPublicationQuery);
             console.log(`✅ Added "${actualTableName}" to supabase_realtime publication`);
           } catch (err: any) {
             // If error contains "already exists", this is fine
@@ -197,7 +198,8 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
               );
             } else {
               console.error(
-                `❌ Failed to add "${actualTableName}" to supabase_realtime: ${err.message}`
+                `❌ Failed to add "${actualTableName}" to supabase_realtime. Full error:`,
+                err
               );
             }
           }
@@ -292,32 +294,29 @@ async function main() {
   try {
     console.log('🚀 Starting Suparisma hook generation...');
     
-    // Check for required environment variables first
     checkEnvironmentVariables();
 
     console.log(`Prisma schema path: ${PRISMA_SCHEMA_PATH}`);
     console.log(`Output directory: ${OUTPUT_DIR}`);
 
-    // Ensure output directories exist
-    [OUTPUT_DIR, TYPES_DIR, HOOKS_DIR, UTILS_DIR].forEach(dir => {
+    // Ensure all specific output directories exist, OUTPUT_DIR is the root and will be created if needed by sub-creations.
+    const dirsToEnsure = [TYPES_DIR, HOOKS_DIR, UTILS_DIR];
+    dirsToEnsure.forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
+        console.log(`Created directory: ${dir}`)
       }
     });
 
-    // Generate Supabase client file first
+    // Generate Supabase client file (goes to UTILS_DIR)
     generateSupabaseClientFile();
 
-    // First, generate the core hook factory
+    // Generate the core hook factory (goes to UTILS_DIR)
     generateCoreFile();
 
-    // Parse models from Prisma schema
     const models = parsePrismaSchema(PRISMA_SCHEMA_PATH);
-
-    // Configure database tables for real-time and search functionality
     await configurePrismaTablesForSuparisma(PRISMA_SCHEMA_PATH);
 
-    // Generate type definitions and hooks for each model
     const modelInfos: ProcessedModelInfo[] = [];
     for (const model of models) {
       const modelInfo = generateModelTypesFile(model);
@@ -325,7 +324,6 @@ async function main() {
       modelInfos.push(modelInfo);
     }
 
-    // Generate the main module file
     generateMainIndexFile(modelInfos);
 
     console.log(`✅ Successfully generated all suparisma hooks and types in "${OUTPUT_DIR}"!`);
@@ -335,5 +333,4 @@ async function main() {
   }
 }
 
-// Execute main function
 main();

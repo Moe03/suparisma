@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { OUTPUT_DIR } from '../config';
+import { UTILS_DIR } from '../config';
 
 /**
  * Generate core hook factory file
@@ -10,7 +10,8 @@ export function generateCoreFile(): void {
 // Edit the generator script instead: scripts/generate-realtime-hooks.ts
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { supabase } from '@monorepo/src/lib/supabase';
+// This import should be relative to its new location in utils/
+import { supabase } from './supabase-client'; 
 
 /**
  * Represents a single search query against a field
@@ -296,13 +297,14 @@ export function applyFilter<T>(
 export function applyOrderBy<T>(
   query: SupabaseQueryBuilder,
   orderBy?: T,
-  hasCreatedAt?: boolean
+  hasCreatedAt?: boolean,
+  createdAtField: string = 'createdAt'
 ): SupabaseQueryBuilder {
   if (!orderBy) {
-    // By default, sort by created_at if available
+    // By default, sort by createdAt if available, using the actual field name from Prisma
     if (hasCreatedAt) {
       // @ts-ignore: Supabase typing issue
-      return query.order('created_at', { ascending: false });
+      return query.order(createdAtField, { ascending: false });
     }
     return query;
   }
@@ -336,9 +338,19 @@ export function createSuparismaHook<
   hasCreatedAt: boolean;
   hasUpdatedAt: boolean;
   searchFields?: string[];
-  defaultValues?: Record<string, string>; // Added parameter for default values
+  defaultValues?: Record<string, string>;
+  createdAtField?: string;
+  updatedAtField?: string;
 }) {
-  const { tableName, hasCreatedAt, hasUpdatedAt, searchFields = [], defaultValues = {} } = config;
+  const { 
+    tableName, 
+    hasCreatedAt, 
+    hasUpdatedAt, 
+    searchFields = [], 
+    defaultValues = {},
+    createdAtField = 'createdAt',
+    updatedAtField = 'updatedAt'
+  } = config;
   
   /**
    * The main hook function that provides all data access methods for a model.
@@ -615,11 +627,11 @@ export function createSuparismaHook<
         
         // Apply order by if provided
         if (params?.orderBy) {
-          query = applyOrderBy(query, params.orderBy, hasCreatedAt);
+          query = applyOrderBy(query, params.orderBy, hasCreatedAt, createdAtField);
         } else if (hasCreatedAt) {
-          // Default ordering if available
+          // Use the actual createdAt field name from Prisma
           // @ts-ignore: Supabase typing issue
-          query = query.order('created_at', { ascending: false });
+          query = query.order(createdAtField, { ascending: false });
         }
         
         // Apply limit if provided
@@ -1003,8 +1015,9 @@ export function createSuparismaHook<
         const itemWithDefaults = {
           ...appliedDefaults, // Apply schema defaults first
           ...data, // Then user data (overrides defaults)
-          ...(hasCreatedAt ? { created_at: now } : {}), // Always set timestamps
-          ...(hasUpdatedAt ? { updated_at: now } : {})
+          // Use the actual field names from Prisma
+          ...(hasCreatedAt ? { [createdAtField]: now } : {}), 
+          ...(hasUpdatedAt ? { [updatedAtField]: now } : {})
         };
         
         const { data: result, error } = await supabase
@@ -1076,7 +1089,8 @@ export function createSuparismaHook<
         
         const itemWithDefaults = {
           ...params.data,
-          ...(hasUpdatedAt ? { updated_at: now } : {})
+          // Use the actual updatedAt field name from Prisma
+          ...(hasUpdatedAt ? { [updatedAtField]: now } : {})
         };
         
         const { data, error } = await supabase
@@ -1418,9 +1432,16 @@ export function createSuparismaHook<
         } 
       : api;
   };
-}`;
+}
+`; // Ensure template literal is closed
 
-  const outputPath = path.join(OUTPUT_DIR, 'core.ts');
+  // Output to the UTILS_DIR
+  const outputPath = path.join(UTILS_DIR, 'core.ts');
+  
+  if (!fs.existsSync(UTILS_DIR)) {
+    fs.mkdirSync(UTILS_DIR, { recursive: true });
+  }
+
   fs.writeFileSync(outputPath, coreContent);
-  console.log(`Updated core hook factory with improved refresh and count functions at ${outputPath}`);
+  console.log(`Generated core utility file at ${outputPath}`);
 }

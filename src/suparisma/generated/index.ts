@@ -1,10 +1,10 @@
 // THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
 // Edit the generator script instead: scripts/generate-realtime-hooks.ts
 
-import { useSuparismaUser } from './useSuparismaUser';
-import type { UseUserOptions, UserHookApi } from './UserTypes';
-export type { SuparismaOptions, SearchQuery, SearchState, FilterOperators } from './core';
-export type { UserWithRelations, UserCreateInput, UserUpdateInput, UserWhereInput, UserWhereUniqueInput, UserOrderByInput, UserHookApi, UseUserOptions } from './UserTypes';
+import { useSuparismaUser } from './hooks/useSuparismaUser';
+import type { UseUserOptions, UserHookApi } from './types/UserTypes';
+export type { SuparismaOptions, SearchQuery, SearchState, FilterOperators } from './utils/core';
+export type { UserWithRelations, UserCreateInput, UserUpdateInput, UserWhereInput, UserWhereUniqueInput, UserOrderByInput, UserHookApi, UseUserOptions } from './types/UserTypes';
 
 /**
  * Interface for all Suparisma hooks with dot notation access.
@@ -24,7 +24,7 @@ export interface SuparismaHooks {
  * 
  * @example
  * // Get hooks for different models
- * import useSuparisma from './hooks/generated';
+ * import useSuparisma from './your-output-dir'; // e.g., from './suparisma/generated'
  * 
  * // Access user model with all hook methods
  * const users = useSuparisma.user();

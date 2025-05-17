@@ -1,4 +1,4 @@
-// This is your Prisma schema file,
+// This is a sample Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
@@ -13,10 +13,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
+enum SomeEnum {
+  ONE
+  TWO
+  THREE
+}
+
+// Realtime is enabled by default for all models
+model Thing {
   id        String   @id @default(uuid())
-  email     String   @unique
   name      String?
+  someEnum  SomeEnum @default(ONE)
+  someNumber Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// @disableRealtime
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
 }

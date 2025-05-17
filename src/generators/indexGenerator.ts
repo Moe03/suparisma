@@ -13,16 +13,16 @@ import { ProcessedModelInfo } from '../types';
  *
  * @example
  * // The generated index allows imports like:
- * import useSuparisma from './hooks/generated';
+ * import useSuparisma from './your-output-dir'; // e.g., from './suparisma/generated'
  * // or
- * import { useSuparismaUser } from './hooks/generated';
+ * import { useSuparismaUser } from './your-output-dir';
  */
 export function generateMainIndexFile(modelInfos: ProcessedModelInfo[]): void {
   // Import statements for hooks
   const imports = modelInfos
     .map(
       (info) =>
-        `import { ${HOOK_NAME_PREFIX}${info.modelName} } from './${HOOK_NAME_PREFIX}${info.modelName}';`
+        `import { ${HOOK_NAME_PREFIX}${info.modelName} } from './hooks/${HOOK_NAME_PREFIX}${info.modelName}';`
     )
     .join('\n');
 
@@ -30,7 +30,7 @@ export function generateMainIndexFile(modelInfos: ProcessedModelInfo[]): void {
   const typeImports = modelInfos
     .map(
       (info) =>
-        `import type { Use${info.modelName}Options, ${info.modelName}HookApi } from './${info.modelName}Types';`
+        `import type { Use${info.modelName}Options, ${info.modelName}HookApi } from './types/${info.modelName}Types';`
     )
     .join('\n');
 
@@ -38,7 +38,7 @@ export function generateMainIndexFile(modelInfos: ProcessedModelInfo[]): void {
   const modelTypeExports = modelInfos
     .map(
       (info) =>
-        `export type { ${info.modelName}WithRelations, ${info.modelName}CreateInput, ${info.modelName}UpdateInput, ${info.modelName}WhereInput, ${info.modelName}WhereUniqueInput, ${info.modelName}OrderByInput, ${info.modelName}HookApi, Use${info.modelName}Options } from './${info.modelName}Types';`
+        `export type { ${info.modelName}WithRelations, ${info.modelName}CreateInput, ${info.modelName}UpdateInput, ${info.modelName}WhereInput, ${info.modelName}WhereUniqueInput, ${info.modelName}OrderByInput, ${info.modelName}HookApi, Use${info.modelName}Options } from './types/${info.modelName}Types';`
     )
     .join('\n');
 
@@ -64,7 +64,7 @@ export function generateMainIndexFile(modelInfos: ProcessedModelInfo[]): void {
 
 ${imports}
 ${typeImports}
-export type { SuparismaOptions, SearchQuery, SearchState, FilterOperators } from './core';
+export type { SuparismaOptions, SearchQuery, SearchState, FilterOperators } from './utils/core';
 ${modelTypeExports}
 
 /**
@@ -85,7 +85,7 @@ ${hookProperties}
  * 
  * @example
  * // Get hooks for different models
- * import useSuparisma from './hooks/generated';
+ * import useSuparisma from './your-output-dir'; // e.g., from './suparisma/generated'
  * 
  * // Access user model with all hook methods
  * const users = useSuparisma.user();
@@ -111,7 +111,14 @@ ${hookAssignments}
 export default useSuparisma;
 `;
 
+  // Output to OUTPUT_DIR (root of generated files)
   const outputPath = path.join(OUTPUT_DIR, 'index.ts');
+  
+  // Ensure the main output directory exists (it should have been created by other generators for subdirs too)
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  }
+
   fs.writeFileSync(outputPath, content);
   console.log(`Generated main module file at ${outputPath}`);
 }

@@ -2,7 +2,8 @@
 // Edit the generator script instead: scripts/generate-realtime-hooks.ts
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { supabase } from './supabase-client';
+// This import should be relative to its new location in utils/
+import { supabase } from './supabase-client'; 
 
 /**
  * Represents a single search query against a field

@@ -44,14 +44,16 @@ export type ModelInfo = {
   searchFields?: SearchFieldInfo[];
 };
 
-// Processed model info with additional metadata
-export type ProcessedModelInfo = {
+/**
+ * Processed information about a model that has been parsed
+ */
+export interface ProcessedModelInfo {
   modelName: string;
   tableName: string;
   hasCreatedAt: boolean;
   hasUpdatedAt: boolean;
-  // All searchable fields
   searchFields?: string[];
-  // Add default values map
   defaultValues?: Record<string, string>;
-};
+  createdAtField?: string; // Add field name for createdAt
+  updatedAtField?: string; // Add field name for updatedAt
+}

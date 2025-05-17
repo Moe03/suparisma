@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { OUTPUT_DIR } from '../config';
+import { TYPES_DIR } from '../config';
 import { ModelInfo, ProcessedModelInfo, SearchQuery, SearchState } from '../types';
 
 /**
@@ -40,6 +40,10 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
 
   // Extract searchable fields from annotations
   const searchFields = model.searchFields?.map((field) => field.name) || [];
+
+  // Find the actual field names for createdAt and updatedAt
+  const createdAtField = model.fields.find(field => field.isCreatedAt)?.name || 'createdAt';
+  const updatedAtField = model.fields.find(field => field.isUpdatedAt)?.name || 'updatedAt';
 
   // Create a manual property list for WithRelations interface
   const withRelationsProps = model.fields
@@ -109,7 +113,7 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
 // Edit the generator script instead
 
 import type { ${modelName} } from '@prisma/client';
-import type { ModelResult, SuparismaOptions, SearchQuery, SearchState } from './core';
+import type { ModelResult, SuparismaOptions, SearchQuery, SearchState } from '../utils/core';
 
 /**
  * Extended ${modelName} type that includes relation fields.
@@ -572,7 +576,12 @@ ${createInputProps
   }) => ${modelName}ManyResult;
 }`;
 
-  const outputPath = path.join(OUTPUT_DIR, `${modelName}Types.ts`);
+  const outputPath = path.join(TYPES_DIR, `${modelName}Types.ts`);
+  
+  if (!fs.existsSync(TYPES_DIR)) {
+    fs.mkdirSync(TYPES_DIR, { recursive: true });
+  }
+  
   fs.writeFileSync(outputPath, typeContent);
   console.log(`Generated type definitions for ${modelName} at ${outputPath}`);
 
@@ -583,5 +592,7 @@ ${createInputProps
     hasUpdatedAt: model.fields.some((field) => field.isUpdatedAt),
     searchFields,
     defaultValues: Object.keys(defaultValues).length > 0 ? defaultValues : undefined,
+    createdAtField,
+    updatedAtField
   };
 }
