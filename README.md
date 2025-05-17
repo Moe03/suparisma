@@ -34,25 +34,62 @@ yarn add suparisma
 pnpm install suparisma
 ```
 
-## ENV Variables 
-You must set the following ENV variables to properly install suparisma:
+## Quick Start
 
-```bash
-# Supabase, Prisma specific (Required)
-DATABASE_URL=""
-DIRECT_URL=""
-# (Public keys) Should be exposed to browser
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
+1. **Add a Prisma schema**: Make sure you have a valid `prisma/schema.prisma` file in your project.
 
-# Suparisma specific (Optional)
-SUPARISMA_OUTPUT_DIR=
-SUPARISMA_PRISMA_SCHEMA_PATH=""
+2. **Set up required environment variables** in a `.env` file:
+
+```
+# Required for Prisma and Supabase
+DATABASE_URL="postgresql://user:password@host:port/database"
+DIRECT_URL="postgresql://user:password@host:port/database"  # Direct Postgres connection
+NEXT_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
 ```
 
-## Basic Usage
+3. **Generate hooks** with a single command:
 
-Add annotations to your Prisma schema:
+```bash
+npx suparisma generate
+```
+
+This will:
+- Read your Prisma schema from the current directory
+- Configure your database for realtime functionality and search
+- Generate type-safe React hooks in `src/suparisma/generated` (configurable)
+
+4. **Use the hooks** in your React components:
+
+```tsx
+import useSuparisma from './src/suparisma/generated';
+
+function UserList() {
+  const users = useSuparisma.user();
+  
+  if (users.loading) return <div>Loading...</div>;
+  if (users.error) return <div>Error: {users.error.message}</div>;
+  
+  return (
+    <div>
+      <h1>Users</h1>
+      <ul>
+        {users.data?.map(user => (
+          <li key={user.id}>{user.name}</li>
+        ))}
+      </ul>
+      
+      <button onClick={() => users.create({ name: "New User" })}>
+        Add User
+      </button>
+    </div>
+  );
+}
+```
+
+## Annotations in Your Prisma Schema
+
+Add annotations directly in your Prisma schema as comments:
 
 ```prisma
 // Realtime is enabled by default for this model
@@ -73,48 +110,29 @@ model AuditLog {
 }
 ```
 
-Generate your hooks:
+## CLI Commands
+
+Suparisma provides a simple CLI with the following commands:
 
 ```bash
+# Generate hooks based on your Prisma schema
 npx suparisma generate
+
+# Show help information
+npx suparisma help
 ```
 
-Use the hooks in your React components:
+## Configuration
 
-```tsx
-import useSuparisma from './suparisma/generated';
+You can customize the behavior using environment variables:
 
-function UserList() {
-  // Get a hook with realtime updates (enabled by default)
-  const users = useSuparisma.user();
-  
-  // Destructure the data, loading, and error states
-  const { data, loading, error } = users;
-  
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error.message}</div>;
-  
-  return (
-    <div>
-      <h1>Users</h1>
-      <ul>
-        {data.map(user => (
-          <li key={user.id}>{user.name}</li>
-        ))}
-      </ul>
-      
-      <button onClick={() => users.create({ name: "New User" })}>
-        Add User
-      </button>
-    </div>
-  );
-}
 ```
+# Optional: Customize output directory
+SUPARISMA_OUTPUT_DIR="src/hooks/generated"
 
-## Annotations
-
-- **Realtime**: Enabled by default for all models. Use `// @disableRealtime` to opt out.
-- **Search**: Add `// @enableSearch` to a string field to enable full-text search.
+# Optional: Specify custom schema path 
+SUPARISMA_PRISMA_SCHEMA_PATH="path/to/schema.prisma"
+```
 
 ## Environment Variables
 

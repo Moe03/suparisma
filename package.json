@@ -8,12 +8,26 @@
 		"start": "node dist/index.js",
 		"test": "jest",
 		"generate-prisma-types": "prisma generate",
-		"generate-hooks": "npx prisma generate && npx prisma db push && ts-node --transpile-only src/index.ts",
+		"generate-hooks": "npx prisma generate && npx prisma db push && ts-node --transpile-only src/index.ts generate",
 		"run-next-example": "cd src/examples/with-next && npm run dev"
 	},
 	"bin": {
 		"suparisma": "dist/index.js"
 	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"keywords": [
+		"react",
+		"hooks",
+		"supabase",
+		"prisma",
+		"typescript",
+		"nextjs",
+		"realtime"
+	],
 	"dependencies": {
 		"@supabase/supabase-js": "^2.49.4",
 		"dotenv": "^16.5.0",

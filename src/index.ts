@@ -19,6 +19,25 @@ import { generateMainIndexFile } from './generators/indexGenerator';
 import { generateSupabaseClientFile } from './generators/supabaseClientGenerator';
 
 /**
+ * Prints the help message showing available commands
+ */
+function printHelp() {
+  console.log(`
+Suparisma - Typesafe React realtime CRUD hooks generator for Supabase, powered by Prisma.
+
+Usage:
+  npx suparisma <command>
+
+Commands:
+  generate    Generate hooks based on your Prisma schema (runs in current directory)
+  help        Show this help message
+
+Example:
+  npx suparisma generate
+  `);
+}
+
+/**
  * Checks for essential environment variables and throws an error if any are missing.
  */
 function checkEnvironmentVariables() {
@@ -288,9 +307,9 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
 }
 
 /**
- * Main execution function
+ * Main execution function for hook generation
  */
-async function main() {
+async function generateHooks() {
   try {
     console.log('🚀 Starting Suparisma hook generation...');
     
@@ -333,4 +352,28 @@ async function main() {
   }
 }
 
-main();
+/**
+ * Main CLI entry point
+ */
+function run() {
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  switch (command) {
+    case 'generate':
+      generateHooks();
+      break;
+    case 'help':
+    case '--help':
+    case '-h':
+      printHelp();
+      break;
+    default:
+      console.log(`Unknown command: ${command}`);
+      printHelp();
+      process.exit(1);
+  }
+}
+
+// Execute the CLI command
+run();

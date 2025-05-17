@@ -1,0 +1,29 @@
+# Source files
+src/
+tests/
+*.test.ts
+*.spec.ts
+
+# Development files
+.git/
+.github/
+.vscode/
+.idea/
+.env
+.env.*
+node_modules/
+
+# Build artifacts
+*.tsbuildinfo
+coverage/
+
+# Examples
+examples/
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log
+.npmrc
+.yarnrc
+.editorconfig 
