@@ -4,11 +4,8 @@ import { UTILS_DIR } from '../config'; // Ensure this is UTILS_DIR
 
 export function generateSupabaseClientFile() {
   const supabaseClientContent = `// THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
-
 import { createClient } from '@supabase/supabase-js';
 
-console.log(\`NEXT_PUBLIC_SUPABASE_URL: \${process.env.NEXT_PUBLIC_SUPABASE_URL}\`);
-console.log(\`NEXT_PUBLIC_SUPABASE_ANON_KEY: \${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}\`);
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!

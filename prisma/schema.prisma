@@ -19,10 +19,11 @@ enum SomeEnum {
   THREE
 }
 
-// Realtime is enabled by default for all models
+
 model Thing {
   id        String   @id @default(uuid())
-  name      String?
+  // @enableSearch
+  name      String? 
   someEnum  SomeEnum @default(ONE)
   someNumber Int?
   createdAt DateTime @default(now())

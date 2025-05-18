@@ -14,6 +14,7 @@ export default function Home() {
   const [sortField, setSortField] = useState("updatedAt");
   const [sortDirection, setSortDirection] = useState("desc");
 
+  const [search, setSearch] = useState("");
   // const [thingsCount, setThingsCount] = useState(0);
   const { 
     data: things,
@@ -23,6 +24,8 @@ export default function Home() {
     update: updateThing,
     delete: deleteThing,
     count: thingCount,
+    search: searchThings,
+    
   } = useSuparisma.thing({
     realtime: true,
     limit: itemsPerPage,
@@ -32,7 +35,7 @@ export default function Home() {
     } : undefined,
     orderBy: {
       [sortField]: sortDirection
-    }
+    },
   });
 
   // useEffect(() => {
@@ -51,10 +54,21 @@ export default function Home() {
   //   return <div>Loading...</div>;
   // }
 
+  console.log(searchThings.queries);
+
   return (
     <div className="container mx-auto p-4 font-[family-name:var(--font-geist-sans)]">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Suparisma Things</h1>
+        <input type="text" placeholder="Search" onChange={(e) => {
+          const searchValue = e.target.value;
+          console.log(`searchValue: ${searchValue}`);
+        
+              searchThings.setQueries([{
+                field: "name",
+                value: searchValue?.trim(),
+              }]);
+        }} />
         <button 
           onClick={() => createThing({ name: 'New Thing', someNumber: Math.floor(Math.random() * 100) })}
           className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
