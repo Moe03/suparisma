@@ -1,3 +1,5 @@
+(BETA) - USE IN PRODUCTION AT YOUR OWN RISK.
+
 # Suparisma
 Supabase + Prisma!
 
