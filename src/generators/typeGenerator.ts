@@ -137,7 +137,7 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
 // Edit the generator script instead
 
 import type { ${modelName} } from '@prisma/client';
-import type { ModelResult, SuparismaOptions, SearchQuery, SearchState } from '../utils/core';
+import type { ModelResult, SuparismaOptions, SearchQuery, SearchState, FilterOperators } from '../utils/core';
 
 /**
  * Extended ${modelName} type that includes relation fields.
@@ -226,8 +226,68 @@ ${withRelationsProps
   .join(',\n')}
  *   }
  * });
+ * 
+ * @example
+ * // Array filtering (for array fields)
+ * ${modelName.toLowerCase()}.findMany({
+ *   where: {
+ *     // Array contains specific items
+${withRelationsProps
+  .filter((p) => p.includes('[]'))
+  .slice(0, 1)
+  .map((p) => {
+    const field = p.trim().split(':')[0].trim();
+    return ` *     ${field}: { has: ["item1", "item2"] }`;
+  })
+  .join(',\n')}
+ *   }
+ * });
  */
-export type ${modelName}WhereInput = Partial<${modelName}WithRelations>;
+export type ${modelName}WhereInput = {
+${model.fields
+  .filter(
+    (field) =>
+      !relationObjectFields.includes(field.name) && !foreignKeyFields.includes(field.name)
+  )
+  .map((field) => {
+    const isOptional = true; // All where fields are optional
+    let baseType: string;
+    switch (field.type) {
+      case 'Int':
+      case 'Float':
+        baseType = 'number';
+        break;
+      case 'Boolean':
+        baseType = 'boolean';
+        break;
+      case 'DateTime':
+        baseType = 'string'; // ISO date string
+        break;
+      case 'Json':
+        baseType = 'any'; // Or a more specific structured type if available
+        break;
+      default:
+        // Covers String, Enum names (e.g., "SomeEnum"), Bytes, Decimal, etc.
+        baseType = 'string';
+    }
+    const finalType = field.isList ? `${baseType}[]` : baseType;
+    const filterType = `${finalType} | FilterOperators<${finalType}>`;
+    return `  ${field.name}${isOptional ? '?' : ''}: ${filterType};`;
+  })
+  .concat(
+    // Add foreign key fields
+    foreignKeyFields.map((field) => {
+      const fieldInfo = model.fields.find((f) => f.name === field);
+      if (fieldInfo) {
+        const baseType = fieldInfo.type === 'Int' ? 'number' : 'string';
+        const filterType = `${baseType} | FilterOperators<${baseType}>`;
+        return `  ${field}?: ${filterType};`;
+      }
+      return '';
+    }).filter(Boolean)
+  )
+  .join('\n')}
+};
 
 /**
  * Unique identifier for finding a specific ${modelName} record.

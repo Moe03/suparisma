@@ -38,6 +38,18 @@ export type SupabaseQueryBuilder = ReturnType<ReturnType<typeof supabase.from>['
  * @example
  * // Posts with titles containing "news"
  * { title: { contains: "news" } }
+ * 
+ * @example
+ * // Array contains ANY of these items (overlaps)
+ * { tags: { has: ["typescript", "react"] } }
+ * 
+ * @example
+ * // Array contains ALL of these items (contains)
+ * { categories: { hasEvery: ["tech", "programming"] } }
+ * 
+ * @example
+ * // Array contains ANY of these items (same as 'has')
+ * { tags: { hasSome: ["javascript", "python"] } }
  */
 export type FilterOperators<T> = {
   /** Equal to value */
@@ -62,6 +74,16 @@ export type FilterOperators<T> = {
   startsWith?: string;
   /** String ends with value (case insensitive) */
   endsWith?: string;
+  
+  // Array-specific operators
+  /** Array contains ANY of the specified items (for array fields) */
+  has?: T extends Array<infer U> ? U[] : never;
+  /** Array contains ANY of the specified items (alias for 'has') */
+  hasSome?: T extends Array<infer U> ? U[] : never;
+  /** Array contains ALL of the specified items (for array fields) */
+  hasEvery?: T extends Array<infer U> ? U[] : never;
+  /** Array is empty (for array fields) */
+  isEmpty?: T extends Array<any> ? boolean : never;
 };
 
 // Type for a single field in an advanced where filter
@@ -234,6 +256,35 @@ export function buildFilterString<T>(where?: T): string | undefined {
         if ('endsWith' in advancedOps && advancedOps.endsWith !== undefined) {
           filters.push(\`\${key}=ilike.%\${advancedOps.endsWith}\`);
         }
+        
+        // Array-specific operators
+        if ('has' in advancedOps && advancedOps.has !== undefined) {
+          // Array contains ANY of the specified items (overlaps)
+          const arrayValue = JSON.stringify(advancedOps.has);
+          filters.push(\`\${key}=ov.\${arrayValue}\`);
+        }
+        
+        if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+          // Array contains ALL of the specified items (contains)
+          const arrayValue = JSON.stringify(advancedOps.hasEvery);
+          filters.push(\`\${key}=cs.\${arrayValue}\`);
+        }
+        
+        if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+          // Array contains ANY of the specified items (overlaps)
+          const arrayValue = JSON.stringify(advancedOps.hasSome);
+          filters.push(\`\${key}=ov.\${arrayValue}\`);
+        }
+        
+        if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
+          if (advancedOps.isEmpty) {
+            // Check if array is empty
+            filters.push(\`\${key}=eq.{}\`);
+          } else {
+            // Check if array is not empty
+            filters.push(\`\${key}=neq.{}\`);
+          }
+        }
       } else {
         // Simple equality
         filters.push(\`\${key}=eq.\${value}\`);
@@ -310,6 +361,37 @@ export function applyFilter<T>(
         if ('endsWith' in advancedOps && advancedOps.endsWith !== undefined) {
           // @ts-ignore: Supabase typing issue
           filteredQuery = filteredQuery.ilike(key, \`%\${advancedOps.endsWith}\`);
+        }
+        
+        // Array-specific operators
+        if ('has' in advancedOps && advancedOps.has !== undefined) {
+          // Array contains ANY of the specified items (overlaps)
+          // @ts-ignore: Supabase typing issue
+          filteredQuery = filteredQuery.overlaps(key, advancedOps.has);
+        }
+        
+        if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+          // Array contains ALL of the specified items (contains)
+          // @ts-ignore: Supabase typing issue
+          filteredQuery = filteredQuery.contains(key, advancedOps.hasEvery);
+        }
+        
+        if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+          // Array contains ANY of the specified items (overlaps)
+          // @ts-ignore: Supabase typing issue
+          filteredQuery = filteredQuery.overlaps(key, advancedOps.hasSome);
+        }
+        
+        if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
+          if (advancedOps.isEmpty) {
+            // Check if array is empty
+            // @ts-ignore: Supabase typing issue
+            filteredQuery = filteredQuery.eq(key, []);
+          } else {
+            // Check if array is not empty
+            // @ts-ignore: Supabase typing issue  
+            filteredQuery = filteredQuery.neq(key, []);
+          }
         }
       } else {
         // Simple equality

@@ -15,6 +15,36 @@ export default function Home() {
   const [sortDirection, setSortDirection] = useState("desc");
 
   const [search, setSearch] = useState("");
+  const [arrayFilterExample, setArrayFilterExample] = useState("1");
+  
+  // Array Filtering Examples - You can now use powerful array operators:
+  /*
+    // Array contains ANY of the specified items
+    stringArray: { has: ["item1", "item2"] }
+    
+    // Array contains ANY of the specified items (same as 'has')
+    stringArray: { hasSome: ["item1", "item2", "item3"] }
+    
+    // Array contains ALL of the specified items
+    stringArray: { hasEvery: ["item1", "item2"] }
+    
+    // Array is empty
+    stringArray: { isEmpty: true }
+    
+    // Array is not empty
+    stringArray: { isEmpty: false }
+    
+    // Regular equality (exact match)
+    stringArray: ["exact", "match"]
+    
+    // For string fields, you can still use:
+    name: { contains: "partial" }
+    name: { startsWith: "prefix" }
+    name: { endsWith: "suffix" }
+    
+    // For number fields:
+    someNumber: { gt: 10, lt: 100 }
+  */
   // const [thingsCount, setThingsCount] = useState(0);
   const { 
     data: things,
@@ -30,9 +60,21 @@ export default function Home() {
     realtime: true,
     limit: itemsPerPage,
     offset: page * itemsPerPage,
-    where: enumFilter ? {
-      someEnum: enumFilter
-    } : undefined,
+    where: true 
+      ? {
+          // Example: Filter records where stringArray contains specific items
+          stringArray: { 
+            hasEvery: ["1", "2", "4"] // Array must contain ALL of these items
+            // has: [arrayFilterExample] // Array contains ANY of the specified items
+            // hasSome: [arrayFilterExample] // Array contains ANY of the specified items
+            // hasEvery: [arrayFilterExample] // Array contains ALL of the specified items
+          }
+        }
+      : enumFilter 
+        ? {
+            someEnum: enumFilter
+          } 
+        : undefined,
     orderBy: {
       [sortField]: sortDirection
     },
@@ -78,7 +120,7 @@ export default function Home() {
       </div>
 
       {/* Filter and Sort Controls */}
-      <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
         <div>
           <label htmlFor="enumFilter" className="block text-sm font-medium text-gray-700 mb-1">
             Filter by Enum
@@ -88,6 +130,7 @@ export default function Home() {
             value={enumFilter}
             onChange={(e) => {
               setEnumFilter(e.target.value);
+              setArrayFilterExample(""); // Clear array filter when enum filter changes
               setPage(0); // Reset to first page when filter changes
             }}
             className="w-full p-2 border border-gray-300 rounded-md"
@@ -97,6 +140,25 @@ export default function Home() {
             <option value="TWO">TWO</option>
             <option value="THREE">THREE</option>
           </select>
+        </div>
+
+        <div>
+          <label htmlFor="arrayFilter" className="block text-sm font-medium text-gray-700 mb-1">
+            Array Contains Item
+          </label>
+          <input
+            id="arrayFilter"
+            type="text"
+            value={arrayFilterExample}
+            onChange={(e) => {
+              setArrayFilterExample(e.target.value);
+              setEnumFilter(""); // Clear enum filter when array filter changes
+              setPage(0); // Reset to first page when filter changes
+            }}
+            placeholder="Enter item to search for in array"
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+          <small className="text-gray-500">Tests array.has() operator</small>
         </div>
         
         <div>

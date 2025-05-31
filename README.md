@@ -303,6 +303,204 @@ const { data } = useSuparisma.thing({
 });
 ```
 
+### Array Filtering
+
+Suparisma provides powerful operators for filtering array fields (e.g., `String[]`, `Int[]`, etc.):
+
+```prisma
+model Post {
+  id       String   @id @default(uuid())
+  title    String
+  tags     String[] // Array field
+  ratings  Int[]    // Array field
+  // ... other fields
+}
+```
+
+#### Array Operators
+
+| Operator | Description | Example Usage |
+|----------|-------------|---------------|
+| `has` | Array contains **ANY** of the specified items | `tags: { has: ["react", "typescript"] }` |
+| `hasSome` | Array contains **ANY** of the specified items (alias for `has`) | `tags: { hasSome: ["react", "vue"] }` |
+| `hasEvery` | Array contains **ALL** of the specified items | `tags: { hasEvery: ["react", "typescript"] }` |
+| `isEmpty` | Array is empty or not empty | `tags: { isEmpty: false }` |
+
+#### Array Filtering Examples
+
+```tsx
+// Find posts that have ANY of these tags
+const { data: reactOrVuePosts } = useSuparisma.post({
+  where: {
+    tags: { has: ["react", "vue", "angular"] }
+  }
+});
+// Returns posts with tags like: ["react"], ["vue"], ["react", "typescript"], etc.
+
+// Find posts that have ALL of these tags
+const { data: fullStackPosts } = useSuparisma.post({
+  where: {
+    tags: { hasEvery: ["react", "typescript", "nodejs"] }
+  }
+});
+// Returns posts that contain all three tags (and possibly more)
+
+// Find posts with any of these ratings
+const { data: highRatedPosts } = useSuparisma.post({
+  where: {
+    ratings: { hasSome: [4, 5] }
+  }
+});
+// Returns posts with arrays containing 4 or 5: [3, 4], [5], [1, 2, 4, 5], etc.
+
+// Find posts with no tags
+const { data: untaggedPosts } = useSuparisma.post({
+  where: {
+    tags: { isEmpty: true }
+  }
+});
+
+// Find posts that have tags (non-empty)
+const { data: taggedPosts } = useSuparisma.post({
+  where: {
+    tags: { isEmpty: false }
+  }
+});
+
+// Combine array filtering with other conditions
+const { data: featuredReactPosts } = useSuparisma.post({
+  where: {
+    tags: { has: ["react"] },
+    featured: true,
+    ratings: { hasEvery: [4, 5] } // Must have both 4 AND 5 ratings
+  }
+});
+
+// Exact array match (regular equality)
+const { data: exactMatch } = useSuparisma.post({
+  where: {
+    tags: ["react", "typescript"] // Exact match: only this array
+  }
+});
+```
+
+#### Real-World Array Filtering Scenarios
+
+```tsx
+// E-commerce: Find products by multiple categories
+const { data: products } = useSuparisma.product({
+  where: {
+    categories: { has: ["electronics", "gaming"] } // Any of these categories
+  }
+});
+
+// Social Media: Find posts with specific hashtags
+const { data: trendingPosts } = useSuparisma.post({
+  where: {
+    hashtags: { hasSome: ["trending", "viral", "popular"] }
+  }
+});
+
+// Project Management: Find tasks assigned to specific team members
+const { data: myTasks } = useSuparisma.task({
+  where: {
+    assignedTo: { has: ["john@company.com"] } // Tasks assigned to John
+  }
+});
+
+// Content Management: Find articles with all required tags
+const { data: completeArticles } = useSuparisma.article({
+  where: {
+    requiredTags: { hasEvery: ["reviewed", "approved", "published"] }
+  }
+});
+```
+
+#### Interactive Array Filtering Component
+
+```tsx
+import { useState } from "react";
+import useSuparisma from '../generated';
+
+function ProductFilter() {
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [filterMode, setFilterMode] = useState<'any' | 'all'>('any');
+
+  const { data: products, loading } = useSuparisma.product({
+    where: selectedCategories.length > 0 ? {
+      categories: filterMode === 'any' 
+        ? { has: selectedCategories }           // ANY of selected categories
+        : { hasEvery: selectedCategories }      // ALL of selected categories
+    } : undefined
+  });
+
+  const handleCategoryToggle = (category: string) => {
+    setSelectedCategories(prev => 
+      prev.includes(category) 
+        ? prev.filter(c => c !== category)
+        : [...prev, category]
+    );
+  };
+
+  return (
+    <div>
+      {/* Filter Mode Toggle */}
+      <div className="mb-4">
+        <label className="mr-4">
+          <input
+            type="radio"
+            value="any"
+            checked={filterMode === 'any'}
+            onChange={(e) => setFilterMode(e.target.value as 'any')}
+          />
+          Match ANY categories
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="all"
+            checked={filterMode === 'all'}
+            onChange={(e) => setFilterMode(e.target.value as 'all')}
+          />
+          Match ALL categories
+        </label>
+      </div>
+
+      {/* Category Checkboxes */}
+      <div className="mb-4">
+        {['electronics', 'clothing', 'books', 'home', 'sports'].map(category => (
+          <label key={category} className="mr-4">
+            <input
+              type="checkbox"
+              checked={selectedCategories.includes(category)}
+              onChange={() => handleCategoryToggle(category)}
+            />
+            {category}
+          </label>
+        ))}
+      </div>
+
+      {/* Results */}
+      <div>
+        {loading ? (
+          <p>Loading products...</p>
+        ) : (
+          <div>
+            <h3>Found {products?.length || 0} products</h3>
+            {products?.map(product => (
+              <div key={product.id}>
+                <h4>{product.name}</h4>
+                <p>Categories: {product.categories.join(', ')}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
 ### Sorting Data
 
 Sort data using Prisma-like ordering:
