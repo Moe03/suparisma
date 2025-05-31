@@ -21,6 +21,8 @@ A powerful, typesafe React hook generator for Supabase, driven by your Prisma sc
   - [Basic CRUD Operations](#basic-crud-operations)
   - [Realtime Updates](#realtime-updates)
   - [Filtering Data](#filtering-data)
+  - [⚠️ IMPORTANT: Using Dynamic Filters with React](#️-important-using-dynamic-filters-with-react)
+  - [Array Filtering](#array-filtering)
   - [Sorting Data](#sorting-data)
   - [Pagination](#pagination)
   - [Search Functionality](#search-functionality)
@@ -58,7 +60,7 @@ Suparisma bridges this gap by:
 - 🚀 **Auto-generated React hooks** based on your Prisma schema
 - 🔄 **Real-time updates by default** for all tables (with opt-out capability)
 - 🔒 **Type-safe interfaces** for all database operations
-- 🔍 **Full-text search** with configurable annotations
+- 🔍 **Full-text search** with configurable annotations *(currently under maintenance)*
 - 🔢 **Pagination and sorting** built into every hook
 - 🧩 **Prisma-like API** that feels familiar if you already use Prisma
 - 📱 **Works with any React framework** including Next.js, Remix, etc.
@@ -303,6 +305,83 @@ const { data } = useSuparisma.thing({
 });
 ```
 
+### ⚠️ IMPORTANT: Using Dynamic Filters with React
+
+**You MUST use `useMemo` for dynamic where filters to prevent constant re-subscriptions!**
+
+When creating `where` filters based on state variables, React will create a new object reference on every render, causing the realtime subscription to restart constantly and **breaking realtime updates**.
+
+❌ **WRONG - This breaks realtime:**
+```tsx
+function MyComponent() {
+  const [filter, setFilter] = useState("active");
+  
+  const { data } = useSuparisma.thing({
+    where: filter ? { status: filter } : undefined // ❌ New object every render!
+  });
+}
+```
+
+✅ **CORRECT - Use useMemo:**
+```tsx
+import { useMemo } from 'react';
+
+function MyComponent() {
+  const [filter, setFilter] = useState("active");
+  const [arrayFilter, setArrayFilter] = useState(["item1"]);
+  
+  // Create stable object reference that only changes when dependencies change
+  const whereFilter = useMemo(() => {
+    if (filter) {
+      return { status: filter };
+    }
+    return undefined;
+  }, [filter]); // Only recreate when filter actually changes
+  
+  const { data } = useSuparisma.thing({
+    where: whereFilter // ✅ Stable reference!
+  });
+}
+```
+
+✅ **Complex example with multiple filters:**
+```tsx
+const whereFilter = useMemo(() => {
+  if (arrayFilterValue && arrayOperator) {
+    return {
+      tags: arrayOperator === 'has' 
+        ? { has: [arrayFilterValue] }
+        : arrayOperator === 'hasEvery'
+        ? { hasEvery: ["required", "tag", arrayFilterValue] }
+        : { isEmpty: false }
+    };
+  } else if (statusFilter) {
+    return { status: statusFilter };
+  }
+  return undefined;
+}, [arrayFilterValue, arrayOperator, statusFilter]); // Dependencies
+
+const { data } = useSuparisma.thing({ where: whereFilter });
+```
+
+**Why this matters:**
+- Without `useMemo`, the subscription restarts on EVERY render
+- This causes realtime events to be lost during reconnection
+- You'll see constant "Unsubscribing/Subscribing" messages in the console
+- Realtime updates will appear to be broken
+
+**The same applies to `orderBy` if it's dynamic:**
+```tsx
+const orderByConfig = useMemo(() => ({
+  [sortField]: sortDirection
+}), [sortField, sortDirection]);
+
+const { data } = useSuparisma.thing({ 
+  where: whereFilter,
+  orderBy: orderByConfig
+});
+```
+
 ### Array Filtering
 
 Suparisma provides powerful operators for filtering array fields (e.g., `String[]`, `Int[]`, etc.):
@@ -542,6 +621,8 @@ const { data, count } = useSuparisma.thing();
 ```
 
 ### Search Functionality
+
+> ⚠️ **MAINTENANCE NOTICE**: Search functionality is currently under maintenance and may not work as expected. We're working on improvements and will update the documentation once it's fully operational.
 
 For fields annotated with `// @enableSearch`, you can use full-text search:
 

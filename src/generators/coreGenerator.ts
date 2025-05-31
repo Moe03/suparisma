@@ -907,24 +907,52 @@ export function createSuparismaHook<
       
       const channelId = channelName || \`changes_to_\${tableName}_\${Math.random().toString(36).substring(2, 15)}\`;
       
-      // Use a dynamic filter string builder inside the event handler or rely on Supabase
-      // For the subscription filter, we must use the initial computedFilter or a stable one.
-      // However, for client-side logic (sorting, adding/removing from list), we use refs.
-      const initialComputedFilter = where ? buildFilterString(where) : realtimeFilter;
-      console.log(\`Setting up subscription for \${tableName} with initial filter: \${initialComputedFilter}\`);
+      // Check if we have complex array filters that should be handled client-side only
+      let hasComplexArrayFilters = false;
+      if (where) {
+        for (const [key, value] of Object.entries(where)) {
+          if (typeof value === 'object' && value !== null) {
+            const advancedOps = value as any;
+            // Check for complex array operators
+            if ('has' in advancedOps || 'hasEvery' in advancedOps || 'hasSome' in advancedOps || 'isEmpty' in advancedOps) {
+              hasComplexArrayFilters = true;
+              break;
+            }
+          }
+        }
+      }
+      
+      // For complex array filters, use no database filter and rely on client-side filtering
+      // For simple filters, use database-level filtering
+      let subscriptionConfig: any = {
+        event: '*',
+        schema: 'public',
+        table: tableName,
+      };
+      
+      if (hasComplexArrayFilters) {
+        // Don't include filter at all for complex array operations
+        console.log(\`Setting up subscription for \${tableName} with NO FILTER (complex array filters detected) - will receive ALL events\`);
+      } else if (where) {
+        // Include filter for simple operations
+        const filter = buildFilterString(where);
+        if (filter) {
+          subscriptionConfig.filter = filter;
+        }
+        console.log(\`Setting up subscription for \${tableName} with database filter: \${filter}\`);
+      } else if (realtimeFilter) {
+        // Use custom realtime filter if provided
+        subscriptionConfig.filter = realtimeFilter;
+        console.log(\`Setting up subscription for \${tableName} with custom filter: \${realtimeFilter}\`);
+      }
       
       const channel = supabase
         .channel(channelId)
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: tableName,
-            filter: initialComputedFilter, // Subscription filter uses initial state
-          },
+          subscriptionConfig,
           (payload) => {
-            console.log(\`Received \${payload.eventType} event for \${tableName}\`, payload);
+            console.log(\`🔥 REALTIME EVENT RECEIVED for \${tableName}:\`, payload.eventType, payload);
             
             // Access current options via refs inside the event handler
             const currentWhere = whereRef.current;
@@ -933,7 +961,10 @@ export function createSuparismaHook<
             const currentOffset = offsetRef.current; // Not directly used in handlers but good for consistency
 
             // Skip realtime updates when search is active
-            if (isSearchingRef.current) return;
+            if (isSearchingRef.current) {
+              console.log('⏭️ Skipping realtime update - search is active');
+              return;
+            }
             
             if (payload.eventType === 'INSERT') {
               // Process insert event
@@ -942,14 +973,46 @@ export function createSuparismaHook<
                   const newRecord = payload.new as TWithRelations;
                   console.log(\`Processing INSERT for \${tableName}\`, { newRecord });
                   
-                  // Check if this record matches our filter if we have one
+                  // ALWAYS check if this record matches our filter client-side
+                  // This is especially important for complex array filters
                   if (currentWhere) { // Use ref value
                     let matchesFilter = true;
                     
-                    // Check each filter condition
+                    // Check each filter condition client-side for complex filters
                     for (const [key, value] of Object.entries(currentWhere)) {
                       if (typeof value === 'object' && value !== null) {
-                        // Complex filter - this is handled by Supabase, assume it matches
+                        // Handle complex array filters client-side
+                        const advancedOps = value as any;
+                        const recordValue = newRecord[key as keyof typeof newRecord] as any;
+                        
+                        // Array-specific operators validation
+                        if ('has' in advancedOps && advancedOps.has !== undefined) {
+                          // Array contains ANY of the specified items
+                          if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) {
+                            matchesFilter = false;
+                            break;
+                          }
+                        } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+                          // Array contains ALL of the specified items
+                          if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) {
+                            matchesFilter = false;
+                            break;
+                          }
+                        } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+                          // Array contains ANY of the specified items
+                          if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) {
+                            matchesFilter = false;
+                            break;
+                          }
+                        } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
+                          // Array is empty or not empty
+                          const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
+                          if (isEmpty !== advancedOps.isEmpty) {
+                            matchesFilter = false;
+                            break;
+                          }
+                        }
+                        // Add other complex filter validations as needed
                       } else if (newRecord[key as keyof typeof newRecord] !== value) {
                         matchesFilter = false;
                         console.log(\`Filter mismatch on \${key}\`, { expected: value, actual: newRecord[key as keyof typeof newRecord] });
@@ -1030,10 +1093,66 @@ export function createSuparismaHook<
                 // Access current options via refs
                 const currentOrderBy = orderByRef.current; 
                 const currentLimit = limitRef.current; // If needed for re-fetch logic on update
+                const currentWhere = whereRef.current;
 
                 // Skip if search is active
                 if (isSearchingRef.current) {
                   return prev;
+                }
+                
+                const updatedRecord = payload.new as TWithRelations;
+                
+                // Check if the updated record still matches our current filter
+                if (currentWhere) {
+                  let matchesFilter = true;
+                  
+                  for (const [key, value] of Object.entries(currentWhere)) {
+                    if (typeof value === 'object' && value !== null) {
+                      // Handle complex array filters client-side
+                      const advancedOps = value as any;
+                      const recordValue = updatedRecord[key as keyof typeof updatedRecord] as any;
+                      
+                      // Array-specific operators validation
+                      if ('has' in advancedOps && advancedOps.has !== undefined) {
+                        // Array contains ANY of the specified items
+                        if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) {
+                          matchesFilter = false;
+                          break;
+                        }
+                      } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+                        // Array contains ALL of the specified items
+                        if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) {
+                          matchesFilter = false;
+                          break;
+                        }
+                      } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+                        // Array contains ANY of the specified items
+                        if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) {
+                          matchesFilter = false;
+                          break;
+                        }
+                      } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
+                        // Array is empty or not empty
+                        const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
+                        if (isEmpty !== advancedOps.isEmpty) {
+                          matchesFilter = false;
+                          break;
+                        }
+                      }
+                    } else if (updatedRecord[key as keyof typeof updatedRecord] !== value) {
+                      matchesFilter = false;
+                      break;
+                    }
+                  }
+                  
+                  // If the updated record doesn't match the filter, remove it from the list
+                  if (!matchesFilter) {
+                    console.log('Updated record no longer matches filter, removing from list');
+                    return prev.filter((item) =>
+                      // @ts-ignore: Supabase typing issue
+                      !('id' in item && 'id' in updatedRecord && item.id === updatedRecord.id)
+                    );
+                  }
                 }
                 
                 const newData = prev.map((item) =>
@@ -1087,7 +1206,10 @@ export function createSuparismaHook<
               });
             } else if (payload.eventType === 'DELETE') {
               // Process delete event
+              console.log('🗑️ Processing DELETE event for', tableName);
               setData((prev) => {
+                console.log('🗑️ DELETE: Current data before deletion:', prev.length, 'items');
+                
                 // Access current options via refs
                 const currentWhere = whereRef.current;
                 const currentOrderBy = orderByRef.current;
@@ -1096,6 +1218,7 @@ export function createSuparismaHook<
 
                 // Skip if search is active
                 if (isSearchingRef.current) {
+                  console.log('⏭️ DELETE: Skipping - search is active');
                   return prev;
                 }
                 
@@ -1105,15 +1228,21 @@ export function createSuparismaHook<
                 // Filter out the deleted item
                 const filteredData = prev.filter((item) => {
                   // @ts-ignore: Supabase typing issue
-                  return !('id' in item && 'id' in payload.old && item.id === payload.old.id);
+                  const shouldKeep = !('id' in item && 'id' in payload.old && item.id === payload.old.id);
+                  if (!shouldKeep) {
+                    console.log('🗑️ DELETE: Removing item with ID:', item.id);
+                  }
+                  return shouldKeep;
                 });
+                
+                console.log('🗑️ DELETE: Data after deletion:', filteredData.length, 'items (was', currentSize, ')');
                 
                 // Fetch the updated count after the data changes
                 setTimeout(() => fetchTotalCount(), 0);
                 
                 // If we need to maintain the size with a limit
                 if (currentLimit && currentLimit > 0 && filteredData.length < currentSize && currentSize === currentLimit) { // Use ref value
-                  console.log(\`Record deleted with limit \${currentLimit}, will fetch additional record to maintain size\`);
+                  console.log(\`🗑️ DELETE: Record deleted with limit \${currentLimit}, will fetch additional record to maintain size\`);
                   
                   // Use setTimeout to ensure this state update completes first
                   setTimeout(() => {
@@ -1190,7 +1319,7 @@ export function createSuparismaHook<
           searchTimeoutRef.current = null;
         }
       };
-    }, [realtime, channelName, tableName, initialLoadRef]); // Removed where, orderBy, limit, offset from deps
+    }, [realtime, channelName, tableName, where, initialLoadRef]); // Added 'where' back so subscription updates when filter changes
 
     // Create a memoized options object to prevent unnecessary re-renders
     const optionsRef = useRef({ where, orderBy, limit, offset });

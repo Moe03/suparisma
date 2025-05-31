@@ -19,6 +19,14 @@ enum SomeEnum {
   THREE
 }
 
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  things    Thing[]  // One-to-many relation
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
 model Thing {
   id        String   @id @default(uuid())
@@ -27,6 +35,8 @@ model Thing {
   stringArray String[]
   someEnum  SomeEnum @default(ONE)
   someNumber Int?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

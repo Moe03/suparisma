@@ -9,6 +9,17 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
   const modelRegex = /model\s+(\w+)\s+{([^}]*)}/gs;
   const models: ModelInfo[] = [];
 
+  // Extract enum names from the schema
+  const enumRegex = /enum\s+(\w+)\s+{[^}]*}/gs;
+  const enumNames: string[] = [];
+  let enumMatch;
+  while ((enumMatch = enumRegex.exec(schema)) !== null) {
+    const enumName = enumMatch[1];
+    if (enumName) {
+      enumNames.push(enumName);
+    }
+  }
+
   let match;
   while ((match = modelRegex.exec(schema)) !== null) {
     const modelName = match[1] || '';
@@ -50,7 +61,7 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
       }
 
       // Parse field definition - Updated to handle array types
-      const fieldMatch = line.match(/\s*(\w+)\s+(\w+)(\[\])?\??(\?)?\s*(?:@[^)]+)?/);
+      const fieldMatch = line.match(/\s*(\w+)\s+(\w+)(\[\])?(\?)?\s*(?:@[^)]+)?/);
       if (fieldMatch) {
         const fieldName = fieldMatch[1];
         const baseFieldType = fieldMatch[2]; // e.g., "String" from "String[]"
@@ -76,10 +87,14 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
           }
         }
 
+        // Improved relation detection
+        const primitiveTypes = ['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt'];
         const isRelation =
           line.includes('@relation') ||
           (!!fieldName &&
-            (fieldName.endsWith('_id') || fieldName === 'userId' || fieldName === 'user_id'));
+            (fieldName.endsWith('_id') || fieldName === 'userId' || fieldName === 'user_id')) ||
+          // Also detect relation fields by checking if the type is not a primitive type and not an enum
+          (!!baseFieldType && !primitiveTypes.includes(baseFieldType) && !enumNames.includes(baseFieldType));
 
         // Check for inline @enableSearch comment
         if (line.includes('// @enableSearch')) {

@@ -1,7 +1,7 @@
 "use client";
 import { create } from "domain";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import useSuparisma from "../generated";
 
 export default function Home() {
@@ -16,6 +16,7 @@ export default function Home() {
 
   const [search, setSearch] = useState("");
   const [arrayFilterExample, setArrayFilterExample] = useState("1");
+  const [arrayOperator, setArrayOperator] = useState<'has' | 'hasEvery' | 'hasSome' | 'isEmpty'>('hasEvery');
   
   // Array Filtering Examples - You can now use powerful array operators:
   /*
@@ -46,6 +47,28 @@ export default function Home() {
     someNumber: { gt: 10, lt: 100 }
   */
   // const [thingsCount, setThingsCount] = useState(0);
+  
+  // Create a stable where object that only changes when filters actually change
+  const whereFilter = useMemo(() => {
+    if (arrayFilterExample) {
+      return {
+        // Dynamic array filtering based on selected operator
+        stringArray: arrayOperator === 'isEmpty' 
+          ? { isEmpty: false } // Test non-empty arrays
+          : arrayOperator === 'hasEvery'
+          ? { hasEvery: ["1", "2", "3"] } // Must contain all three
+          : arrayOperator === 'has'
+          ? { has: [arrayFilterExample] } // Must contain the specified item
+          : { hasSome: [arrayFilterExample, "2"] } // Must contain any of these items
+      };
+    } else if (enumFilter) {
+      return {
+        someEnum: enumFilter
+      };
+    }
+    return undefined;
+  }, [arrayFilterExample, arrayOperator, enumFilter]);
+  
   const { 
     data: things,
     loading: isLoadingThing,
@@ -60,21 +83,7 @@ export default function Home() {
     realtime: true,
     limit: itemsPerPage,
     offset: page * itemsPerPage,
-    where: true 
-      ? {
-          // Example: Filter records where stringArray contains specific items
-          stringArray: { 
-            hasEvery: ["1", "2", "4"] // Array must contain ALL of these items
-            // has: [arrayFilterExample] // Array contains ANY of the specified items
-            // hasSome: [arrayFilterExample] // Array contains ANY of the specified items
-            // hasEvery: [arrayFilterExample] // Array contains ALL of the specified items
-          }
-        }
-      : enumFilter 
-        ? {
-            someEnum: enumFilter
-          } 
-        : undefined,
+    where: whereFilter,
     orderBy: {
       [sortField]: sortDirection
     },
@@ -96,7 +105,7 @@ export default function Home() {
   //   return <div>Loading...</div>;
   // }
 
-  console.log(searchThings.queries);
+  // console.log(searchThings.queries);
 
   return (
     <div className="container mx-auto p-4 font-[family-name:var(--font-geist-sans)]">
@@ -120,7 +129,7 @@ export default function Home() {
       </div>
 
       {/* Filter and Sort Controls */}
-      <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="mb-4 grid grid-cols-1 md:grid-cols-5 gap-4">
         <div>
           <label htmlFor="enumFilter" className="block text-sm font-medium text-gray-700 mb-1">
             Filter by Enum
@@ -143,8 +152,29 @@ export default function Home() {
         </div>
 
         <div>
+          <label htmlFor="arrayOperator" className="block text-sm font-medium text-gray-700 mb-1">
+            Array Operator
+          </label>
+          <select
+            id="arrayOperator"
+            value={arrayOperator}
+            onChange={(e) => {
+              setArrayOperator(e.target.value as any);
+              setEnumFilter(""); // Clear enum filter when array filter changes
+              setPage(0); // Reset to first page when filter changes
+            }}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          >
+            <option value="has">has (ANY)</option>
+            <option value="hasEvery">hasEvery (ALL)</option>
+            <option value="hasSome">hasSome (ANY)</option>
+            <option value="isEmpty">isEmpty</option>
+          </select>
+        </div>
+
+        <div>
           <label htmlFor="arrayFilter" className="block text-sm font-medium text-gray-700 mb-1">
-            Array Contains Item
+            Array Item Value
           </label>
           <input
             id="arrayFilter"
@@ -155,10 +185,16 @@ export default function Home() {
               setEnumFilter(""); // Clear enum filter when array filter changes
               setPage(0); // Reset to first page when filter changes
             }}
-            placeholder="Enter item to search for in array"
+            placeholder="Enter item to search for"
             className="w-full p-2 border border-gray-300 rounded-md"
+            disabled={arrayOperator === 'isEmpty'}
           />
-          <small className="text-gray-500">Tests array.has() operator</small>
+          <small className="text-gray-500">
+            {arrayOperator === 'has' && "Array contains ANY of these items"}
+            {arrayOperator === 'hasEvery' && "Array contains ALL items: 1,2,3"}
+            {arrayOperator === 'hasSome' && "Array contains ANY: input+2"}
+            {arrayOperator === 'isEmpty' && "Array is not empty"}
+          </small>
         </div>
         
         <div>
@@ -205,6 +241,7 @@ export default function Home() {
             <tr className="bg-gray-100">
               <th className="py-2 px-4 border-b text-left">Name</th>
               <th className="py-2 px-4 border-b text-left">Some Number</th>
+              <th className="py-2 px-4 border-b text-left">String Array</th>
               <th className="py-2 px-4 border-b text-left">Enum</th>
               <th className="py-2 px-4 border-b text-left">ID</th>
               <th className="py-2 px-4 border-b text-left">Actions</th>
@@ -215,6 +252,11 @@ export default function Home() {
               <tr key={thing.id} className="hover:bg-gray-50">
                 <td className="py-2 px-4 border-b">{thing.name}</td>
                 <td className="py-2 px-4 border-b">{thing.someNumber}</td>
+                <td className="py-2 px-4 border-b">
+                  <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                    [{thing.stringArray?.join(', ') || 'empty'}]
+                  </span>
+                </td>
                 <td className="py-2 px-4 border-b">{thing.someEnum}</td>
                 <td className="py-2 px-4 border-b">{thing.id}</td>
                 <td className="py-2 px-4 border-b">
@@ -235,7 +277,7 @@ export default function Home() {
             ))}
             {(things?.length === 0 && !isLoadingThing) && (
               <tr>
-                <td colSpan={5} className="py-4 px-4 text-center text-gray-500">
+                <td colSpan={6} className="py-4 px-4 text-center text-gray-500">
                   No things found.
                 </td>
               </tr>
