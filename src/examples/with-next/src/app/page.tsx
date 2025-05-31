@@ -70,7 +70,7 @@ export default function Home() {
               }]);
         }} />
         <button 
-          onClick={() => createThing({ name: 'New Thing', someNumber: Math.floor(Math.random() * 100) })}
+          onClick={() => createThing({ name: 'New Thing', someNumber: Math.floor(Math.random() * 100), stringArray: ['1', '2', '3'] })}
           className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
         >
           Create New Thing {isLoadingThing ? "..." : ""}

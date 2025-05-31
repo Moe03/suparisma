@@ -53,15 +53,27 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
     )
     .map((field) => {
       const isOptional = field.isOptional;
-      const type =
-        field.type === 'Int'
-          ? 'number'
-          : field.type === 'Float'
-            ? 'number'
-            : field.type === 'Boolean'
-              ? 'boolean'
-              : 'string';
-      return `  ${field.name}${isOptional ? '?' : ''}: ${type};`;
+      let baseType: string;
+      switch (field.type) {
+        case 'Int':
+        case 'Float':
+          baseType = 'number';
+          break;
+        case 'Boolean':
+          baseType = 'boolean';
+          break;
+        case 'DateTime':
+          baseType = 'string'; // ISO date string
+          break;
+        case 'Json':
+          baseType = 'any'; // Or a more specific structured type if available
+          break;
+        default:
+          // Covers String, Enum names (e.g., "SomeEnum"), Bytes, Decimal, etc.
+          baseType = 'string';
+      }
+      const finalType = field.isList ? `${baseType}[]` : baseType;
+      return `  ${field.name}${isOptional ? '?' : ''}: ${finalType};`;
     });
 
   // Add foreign key fields
@@ -85,15 +97,27 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
     .map((field) => {
       // Make fields with default values optional in CreateInput
       const isOptional = field.isOptional || defaultValueFields.includes(field.name);
-      const type =
-        field.type === 'Int'
-          ? 'number'
-          : field.type === 'Float'
-            ? 'number'
-            : field.type === 'Boolean'
-              ? 'boolean'
-              : 'string';
-      return `  ${field.name}${isOptional ? '?' : ''}: ${type};`;
+      let baseType: string;
+      switch (field.type) {
+        case 'Int':
+        case 'Float':
+          baseType = 'number';
+          break;
+        case 'Boolean':
+          baseType = 'boolean';
+          break;
+        case 'DateTime':
+          baseType = 'string'; // ISO date string
+          break;
+        case 'Json':
+          baseType = 'any'; // Or a more specific structured type if available
+          break;
+        default:
+          // Covers String, Enum names (e.g., "SomeEnum"), Bytes, Decimal, etc.
+          baseType = 'string';
+      }
+      const finalType = field.isList ? `${baseType}[]` : baseType;
+      return `  ${field.name}${isOptional ? '?' : ''}: ${finalType};`;
     });
 
   // Add foreign key fields to CreateInput

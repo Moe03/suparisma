@@ -49,16 +49,17 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
         continue;
       }
 
-      // Parse field definition
-      const fieldMatch = line.match(/\s*(\w+)\s+(\w+)(\?)?\s*(?:@[^)]+)?/);
+      // Parse field definition - Updated to handle array types
+      const fieldMatch = line.match(/\s*(\w+)\s+(\w+)(\[\])?\??(\?)?\s*(?:@[^)]+)?/);
       if (fieldMatch) {
         const fieldName = fieldMatch[1];
-        const fieldType = fieldMatch[2];
-        const isOptional = !!fieldMatch[3]; // ? makes it optional
+        const baseFieldType = fieldMatch[2]; // e.g., "String" from "String[]"
+        const isArray = !!fieldMatch[3]; // [] makes it an array
+        const isOptional = !!fieldMatch[4]; // ? makes it optional
 
         // Store for potential standalone @enableSearch comment
         lastFieldName = fieldName || '';
-        lastFieldType = fieldType || '';
+        lastFieldType = baseFieldType || '';
 
         // Detect special fields
         const isId = line.includes('@id');
@@ -84,14 +85,14 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
         if (line.includes('// @enableSearch')) {
           searchFields.push({
             name: fieldName || '',
-            type: fieldType || '',
+            type: baseFieldType || '',
           });
         }
 
-        if (fieldName && fieldType) {
+        if (fieldName && baseFieldType) {
           fields.push({
             name: fieldName,
-            type: fieldType,
+            type: baseFieldType, // Store the base type (String, not String[])
             isRequired: false,
             isOptional,
             isId,
@@ -101,6 +102,7 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
             hasDefaultValue,
             defaultValue, // Add the extracted default value
             isRelation,
+            isList: isArray, // Add the isList property
           });
         }
       }

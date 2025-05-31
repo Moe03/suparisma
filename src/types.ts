@@ -11,6 +11,7 @@ export type FieldInfo = {
   hasDefaultValue: boolean;
   defaultValue?: string; // Added to track the actual default value
   isRelation: boolean;
+  isList?: boolean;
 };
 
 // Search field information

@@ -24,6 +24,7 @@ model Thing {
   id        String   @id @default(uuid())
   // @enableSearch
   name      String? 
+  stringArray String[]
   someEnum  SomeEnum @default(ONE)
   someNumber Int?
   createdAt DateTime @default(now())
