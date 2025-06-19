@@ -28,6 +28,7 @@ model User {
   updatedAt DateTime @updatedAt
 }
 
+/// @zod.import(["import { LLMNodeSchema } from '../commonTypes'"])
 model Thing {
   id        String   @id @default(uuid())
   // @enableSearch
@@ -35,6 +36,9 @@ model Thing {
   stringArray String[]
   someEnum  SomeEnum @default(ONE)
   someNumber Int?
+
+  /// [Json]
+  someJson Json? /// @zod.custom.use(z.array(LLMNodeSchema).nullable())
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())

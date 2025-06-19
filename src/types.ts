@@ -12,12 +12,20 @@ export type FieldInfo = {
   defaultValue?: string; // Added to track the actual default value
   isRelation: boolean;
   isList?: boolean;
+  // Add zod directive support
+  zodDirective?: string; // e.g., "z.string().min(3)" or "z.array(LLMNodeSchema).nullable()"
 };
 
 // Search field information
 export type SearchFieldInfo = {
   name: string;
   type: string;
+};
+
+// Zod import information
+export type ZodImportInfo = {
+  importStatement: string; // e.g., "import { LLMNodeSchema } from '../commonTypes'"
+  types: string[]; // e.g., ["LLMNodeSchema"] - extracted type names for reference
 };
 
 // Search query type
@@ -43,6 +51,8 @@ export type ModelInfo = {
   fields: FieldInfo[];
   // Fields marked with @enableSearch annotation
   searchFields?: SearchFieldInfo[];
+  // Add zod import support at model level
+  zodImports?: ZodImportInfo[];
 };
 
 /**
@@ -57,4 +67,6 @@ export interface ProcessedModelInfo {
   defaultValues?: Record<string, string>;
   createdAtField?: string; // Add field name for createdAt
   updatedAtField?: string; // Add field name for updatedAt
+  // Add zod import support for processed models
+  zodImports?: ZodImportInfo[];
 }

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { TYPES_DIR } from '../config';
-import { ModelInfo, ProcessedModelInfo, SearchQuery, SearchState } from '../types';
+import { ModelInfo, ProcessedModelInfo, SearchQuery, SearchState, FieldInfo } from '../types';
 
 /**
  * Generate model-specific types for a model
@@ -45,6 +45,48 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
   const createdAtField = model.fields.find(field => field.isCreatedAt)?.name || 'createdAt';
   const updatedAtField = model.fields.find(field => field.isUpdatedAt)?.name || 'updatedAt';
 
+  // Helper function to get TypeScript type for a field, considering zod directives
+  const getFieldType = (field: FieldInfo): string => {
+    let baseType: string;
+    
+    // Check if field has a custom zod directive
+    if (field.zodDirective && field.type === 'Json') {
+      // For Json fields with zod directives, we need to infer the type from the zod schema
+      // This is a simplified approach - you might want to make this more sophisticated
+      if (field.zodDirective.includes('z.array(') && field.zodDirective.includes('LLMNodeSchema')) {
+        // Handle z.array(LLMNodeSchema).nullable() case
+        return field.zodDirective.includes('.nullable()') ? 'LLMNode[] | null' : 'LLMNode[]';
+      } else if (field.zodDirective.includes('LLMNodeSchema')) {
+        // Handle single LLMNodeSchema case
+        return field.zodDirective.includes('.nullable()') ? 'LLMNode | null' : 'LLMNode';
+      }
+      // For other custom zod directives on Json fields, default to any for now
+      return 'any';
+    }
+    
+    // Standard type mapping
+    switch (field.type) {
+      case 'Int':
+      case 'Float':
+        baseType = 'number';
+        break;
+      case 'Boolean':
+        baseType = 'boolean';
+        break;
+      case 'DateTime':
+        baseType = 'string'; // ISO date string
+        break;
+      case 'Json':
+        baseType = 'any'; // Or a more specific structured type if available
+        break;
+      default:
+        // Covers String, Enum names (e.g., "SomeEnum"), Bytes, Decimal, etc.
+        baseType = 'string';
+    }
+    
+    return field.isList ? `${baseType}[]` : baseType;
+  };
+
   // Create a manual property list for WithRelations interface
   const withRelationsProps = model.fields
     .filter(
@@ -53,26 +95,7 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
     )
     .map((field) => {
       const isOptional = field.isOptional;
-      let baseType: string;
-      switch (field.type) {
-        case 'Int':
-        case 'Float':
-          baseType = 'number';
-          break;
-        case 'Boolean':
-          baseType = 'boolean';
-          break;
-        case 'DateTime':
-          baseType = 'string'; // ISO date string
-          break;
-        case 'Json':
-          baseType = 'any'; // Or a more specific structured type if available
-          break;
-        default:
-          // Covers String, Enum names (e.g., "SomeEnum"), Bytes, Decimal, etc.
-          baseType = 'string';
-      }
-      const finalType = field.isList ? `${baseType}[]` : baseType;
+      const finalType = getFieldType(field);
       return `  ${field.name}${isOptional ? '?' : ''}: ${finalType};`;
     });
 
@@ -97,26 +120,7 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
     .map((field) => {
       // Make fields with default values optional in CreateInput
       const isOptional = field.isOptional || defaultValueFields.includes(field.name);
-      let baseType: string;
-      switch (field.type) {
-        case 'Int':
-        case 'Float':
-          baseType = 'number';
-          break;
-        case 'Boolean':
-          baseType = 'boolean';
-          break;
-        case 'DateTime':
-          baseType = 'string'; // ISO date string
-          break;
-        case 'Json':
-          baseType = 'any'; // Or a more specific structured type if available
-          break;
-        default:
-          // Covers String, Enum names (e.g., "SomeEnum"), Bytes, Decimal, etc.
-          baseType = 'string';
-      }
-      const finalType = field.isList ? `${baseType}[]` : baseType;
+      const finalType = getFieldType(field);
       return `  ${field.name}${isOptional ? '?' : ''}: ${finalType};`;
     });
 
@@ -132,11 +136,55 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
     }
   });
 
+  // Generate imports section for zod custom types
+  let customImports = '';
+  if (model.zodImports && model.zodImports.length > 0) {
+    // Add zod import for type inference
+    customImports = 'import { z } from \'zod\';\n';
+    
+    // Get the zod schemas file path from environment variable
+    const zodSchemasPath = process.env.ZOD_SCHEMAS_FILE_PATH || '../commonTypes';
+    
+    // Add custom imports with environment variable path
+    customImports += model.zodImports
+      .map(zodImport => {
+        // Extract the types from the original import statement
+        const typeMatch = zodImport.importStatement.match(/import\s+{\s*([^}]+)\s*}\s+from/);
+        if (typeMatch) {
+          const types = typeMatch[1].trim();
+          return `import { ${types} } from '${zodSchemasPath}'`;
+        }
+        // Fallback to original import if parsing fails
+        return zodImport.importStatement;
+      })
+      .join('\n') + '\n\n';
+      
+    // Add type definitions for imported zod schemas if needed
+    // This is a simplified approach - you might want to make this more sophisticated
+    const customTypeDefinitions = model.zodImports
+      .flatMap(zodImport => zodImport.types)
+      .filter((type, index, array) => array.indexOf(type) === index) // Remove duplicates
+      .map(type => {
+        // If it ends with 'Schema', create a corresponding type
+        if (type.endsWith('Schema')) {
+          const typeName = type.replace('Schema', '');
+          return `export type ${typeName} = z.infer<typeof ${type}>;`;
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+      
+    if (customTypeDefinitions) {
+      customImports += customTypeDefinitions + '\n\n';
+    }
+  }
+
   // Generate the type content with TSDoc comments
   const typeContent = `// THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
 // Edit the generator script instead
 
-import type { ${modelName} } from '@prisma/client';
+${customImports}import type { ${modelName} } from '@prisma/client';
 import type { ModelResult, SuparismaOptions, SearchQuery, SearchState, FilterOperators } from '../utils/core';
 
 /**
@@ -251,26 +299,7 @@ ${model.fields
   )
   .map((field) => {
     const isOptional = true; // All where fields are optional
-    let baseType: string;
-    switch (field.type) {
-      case 'Int':
-      case 'Float':
-        baseType = 'number';
-        break;
-      case 'Boolean':
-        baseType = 'boolean';
-        break;
-      case 'DateTime':
-        baseType = 'string'; // ISO date string
-        break;
-      case 'Json':
-        baseType = 'any'; // Or a more specific structured type if available
-        break;
-      default:
-        // Covers String, Enum names (e.g., "SomeEnum"), Bytes, Decimal, etc.
-        baseType = 'string';
-    }
-    const finalType = field.isList ? `${baseType}[]` : baseType;
+    const finalType = getFieldType(field);
     const filterType = `${finalType} | FilterOperators<${finalType}>`;
     return `  ${field.name}${isOptional ? '?' : ''}: ${filterType};`;
   })
@@ -669,6 +698,7 @@ ${createInputProps
     searchFields,
     defaultValues: Object.keys(defaultValues).length > 0 ? defaultValues : undefined,
     createdAtField,
-    updatedAtField
+    updatedAtField,
+    zodImports: model.zodImports // Pass through zod imports
   };
 }

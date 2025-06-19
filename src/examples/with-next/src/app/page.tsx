@@ -89,6 +89,8 @@ export default function Home() {
     },
   });
 
+  things[0].someJson;
+
   // useEffect(() => {
   //   if(thingCount) {
   //     thingCount().then((count) => {
