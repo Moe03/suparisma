@@ -527,7 +527,7 @@ export function createSuparismaHook<
     // Single data collection for holding results
     const [data, setData] = useState<TWithRelations[]>([]);
     const [error, setError] = useState<Error | null>(null);
-    const [loading, setLoading] = useState<boolean>(false);
+    const [loading, setLoading] = useState<boolean>(true);
     
     // This is the total count, unaffected by pagination limits
     const [count, setCount] = useState<number>(0);
