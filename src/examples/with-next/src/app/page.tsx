@@ -89,7 +89,7 @@ export default function Home() {
     },
   });
 
-  things[0].someJson;
+  // things?.[0]?.someJson;
 
   // useEffect(() => {
   //   if(thingCount) {
@@ -108,6 +108,8 @@ export default function Home() {
   // }
 
   // console.log(searchThings.queries);
+  
+  console.log(`loading value: ${isLoadingThing}`);
 
   return (
     <div className="container mx-auto p-4 font-[family-name:var(--font-geist-sans)]">
