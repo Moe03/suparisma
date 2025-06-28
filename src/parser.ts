@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { ModelInfo, FieldInfo, SearchFieldInfo, ZodImportInfo } from './types';
+import { ModelInfo, FieldInfo, SearchFieldInfo, ZodImportInfo, CompositeIdInfo } from './types';
 
 /**
  * Parse zod directive from comment
@@ -75,6 +75,24 @@ function parseZodImport(comment: string): ZodImportInfo[] {
 }
 
 /**
+ * Parse composite ID from @@id([field1, field2]) syntax
+ */
+function parseCompositeId(modelBody: string): CompositeIdInfo | undefined {
+  const compositeIdMatch = modelBody.match(/@@id\(\[([^\]]+)\]/);
+  if (!compositeIdMatch) {
+    return undefined;
+  }
+  
+  const fieldsString = compositeIdMatch[1];
+  const fields = fieldsString
+    .split(',')
+    .map(field => field.trim().replace(/['"]/g, '')) // Remove quotes and whitespace
+    .filter(field => field.length > 0);
+  
+  return fields.length > 0 ? { fields } : undefined;
+}
+
+/**
  * Parse Prisma schema to extract model information including search annotations and zod directives
  */
 export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
@@ -101,6 +119,9 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
     // Extract custom table name if provided with @@map
     const mapMatch = modelBody.match(/@@map\("([^"]+)"\)/);
     const mappedName = mapMatch ? mapMatch[1] : modelName;
+
+    // Extract composite ID if present
+    const compositeId = parseCompositeId(modelBody);
 
     // Extract field info
     const fields: FieldInfo[] = [];
@@ -159,7 +180,7 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
         lastFieldType = baseFieldType || '';
 
         // Detect special fields
-        const isId = line.includes('@id');
+        const isId = line.includes('@id') || !!(compositeId && compositeId.fields.includes(fieldName || ''));
         const isCreatedAt = fieldName === 'created_at' || fieldName === 'createdAt';
         const isUpdatedAt = fieldName === 'updated_at' || fieldName === 'updatedAt';
         const hasDefaultValue = line.includes('@default');
@@ -263,6 +284,7 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
       fields,
       searchFields: searchFields.length > 0 ? searchFields : undefined,
       zodImports: zodImports.length > 0 ? zodImports : undefined,
+      compositeId, // Add composite ID support
     });
   }
 

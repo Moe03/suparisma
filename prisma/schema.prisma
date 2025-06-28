@@ -52,3 +52,17 @@ model AuditLog {
   details   String?
   createdAt DateTime @default(now())
 }
+
+// Model with composite primary key for testing composite ID support
+model UserRole {
+  userId   String
+  roleId   String
+  roleName String
+  assignedAt DateTime @default(now())
+  assignedBy String?
+  active     Boolean  @default(true)
+  
+  // Composite primary key
+  @@id([userId, roleId])
+  @@map("user_roles")
+}

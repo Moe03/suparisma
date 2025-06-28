@@ -610,6 +610,61 @@ export function applyOrderBy<T>(
 }
 
 /**
+ * Helper function to apply where conditions for composite IDs
+ */
+function applyCompositeWhere(
+  query: SupabaseQueryBuilder,
+  where: any,
+  compositeId?: { fields: string[] }
+): SupabaseQueryBuilder {
+  if (!compositeId) {
+    // Single field primary key
+    const primaryKey = Object.keys(where)[0];
+    if (!primaryKey) {
+      throw new Error('A unique identifier is required');
+    }
+    
+    const value = where[primaryKey as keyof typeof where];
+    if (value === undefined) {
+      throw new Error('A unique identifier is required');
+    }
+    
+    // @ts-ignore: Supabase typing issue
+    return query.eq(primaryKey, value);
+  } else {
+    // Composite primary key
+    let filteredQuery = query;
+    for (const field of compositeId.fields) {
+      const value = where[field as keyof typeof where];
+      if (value === undefined) {
+        throw new Error(\`Composite ID field '\${field}' is required\`);
+      }
+      // @ts-ignore: Supabase typing issue
+      filteredQuery = filteredQuery.eq(field, value);
+    }
+    return filteredQuery;
+  }
+}
+
+/**
+ * Helper function to check if a record matches composite ID conditions
+ */
+function recordMatchesCompositeId(
+  record: any,
+  where: any,
+  compositeId?: { fields: string[] }
+): boolean {
+  if (!compositeId) {
+    // Single field primary key
+    const primaryKey = Object.keys(where)[0];
+    return record[primaryKey] === where[primaryKey];
+  } else {
+    // Composite primary key - all fields must match
+    return compositeId.fields.every(field => record[field] === where[field]);
+  }
+}
+
+/**
  * Client-side filter validation for realtime events
  */
 function clientSideFilterCheck<T>(record: any, where: T): boolean {
@@ -734,6 +789,7 @@ export function createSuparismaHook<
   defaultValues?: Record<string, string>;
   createdAtField?: string;
   updatedAtField?: string;
+  compositeId?: { fields: string[] };
 }) {
   const { 
     tableName, 
@@ -742,7 +798,8 @@ export function createSuparismaHook<
     searchFields = [], 
     defaultValues = {},
     createdAtField = 'createdAt',
-    updatedAtField = 'updatedAt'
+    updatedAtField = 'updatedAt',
+    compositeId
   } = config;
   
   /**
@@ -1138,23 +1195,10 @@ export function createSuparismaHook<
         setLoading(true);
         setError(null);
         
-        // Find the primary field (usually 'id')
-        // @ts-ignore: Supabase typing issue
-        const primaryKey = Object.keys(where)[0];
-        if (!primaryKey) {
-          throw new Error('A unique identifier is required');
-        }
+        let query = supabase.from(tableName).select('*');
+        query = applyCompositeWhere(query, where, compositeId);
         
-        const value = where[primaryKey as keyof typeof where];
-        if (value === undefined) {
-          throw new Error('A unique identifier is required');
-        }
-        
-        const { data, error } = await supabase
-          .from(tableName)
-          .select('*')
-          .eq(primaryKey, value)
-          .maybeSingle();
+        const { data, error } = await query.maybeSingle();
         
         if (error) throw error;
         
@@ -1166,7 +1210,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, []);
+    }, [compositeId]);
 
     // Set up realtime subscription for the list
     useEffect(() => {
@@ -1266,8 +1310,7 @@ export function createSuparismaHook<
                   
                   // Check if record already exists (avoid duplicates)
                   const exists = prev.some(item => 
-                    // @ts-ignore: Supabase typing issue
-                    'id' in item && 'id' in newRecord && item.id === newRecord.id
+                    recordMatchesCompositeId(item, newRecord, compositeId)
                   );
                   
                   if (exists) {
@@ -1346,15 +1389,13 @@ export function createSuparismaHook<
                   // If the updated record doesn't match the filter, remove it from the list
                   if (!matchesFilter) {
                     return prev.filter((item) =>
-                      // @ts-ignore: Supabase typing issue
-                      !('id' in item && 'id' in updatedRecord && item.id === updatedRecord.id)
+                      !recordMatchesCompositeId(item, updatedRecord, compositeId)
                     );
                   }
                 }
                 
                 const newData = prev.map((item) =>
-                  // @ts-ignore: Supabase typing issue
-                  'id' in item && 'id' in payload.new && item.id === payload.new.id 
+                  recordMatchesCompositeId(item, payload.new, compositeId)
                     ? (payload.new as TWithRelations) 
                     : item
                 );
@@ -1421,8 +1462,7 @@ export function createSuparismaHook<
                 
                 // Filter out the deleted item
                 const filteredData = prev.filter((item) => {
-                  // @ts-ignore: Supabase typing issue
-                  return !('id' in item && 'id' in payload.old && item.id === payload.old.id);
+                  return !recordMatchesCompositeId(item, payload.old, compositeId);
                 });
                 
                 // Fetch the updated count after the data changes
@@ -1687,18 +1727,6 @@ export function createSuparismaHook<
         setLoading(true);
         setError(null);
         
-        // Find the primary field (usually 'id')
-        // @ts-ignore: Supabase typing issue
-        const primaryKey = Object.keys(params.where)[0];
-        if (!primaryKey) {
-          throw new Error('A unique identifier is required');
-        }
-        
-        const value = params.where[primaryKey as keyof typeof params.where];
-        if (value === undefined) {
-          throw new Error('A unique identifier is required');
-        }
-        
         const now = new Date().toISOString();
         
         // We do not apply default values for updates
@@ -1711,11 +1739,10 @@ export function createSuparismaHook<
           ...(hasUpdatedAt ? { [updatedAtField]: now } : {})
         };
         
-        const { data, error } = await supabase
-          .from(tableName)
-          .update(itemWithDefaults)
-          .eq(primaryKey, value)
-          .select();
+        let query = supabase.from(tableName).update(itemWithDefaults);
+        query = applyCompositeWhere(query, params.where, compositeId);
+        
+        const { data, error } = await query.select();
         
         if (error) throw error;
         
@@ -1733,7 +1760,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, [fetchTotalCount]);
+    }, [fetchTotalCount, compositeId]);
 
     /**
      * Delete a record by its unique identifier.
@@ -1755,34 +1782,21 @@ export function createSuparismaHook<
         setLoading(true);
         setError(null);
         
-        // Find the primary field (usually 'id')
-        // @ts-ignore: Supabase typing issue
-        const primaryKey = Object.keys(where)[0];
-        if (!primaryKey) {
-          throw new Error('A unique identifier is required');
-        }
-        
-        const value = where[primaryKey as keyof typeof where];
-        if (value === undefined) {
-          throw new Error('A unique identifier is required');
-        }
-        
         // First fetch the record to return it
-        const { data: recordToDelete } = await supabase
-          .from(tableName)
-          .select('*')
-          .eq(primaryKey, value)
-          .maybeSingle();
+        let selectQuery = supabase.from(tableName).select('*');
+        selectQuery = applyCompositeWhere(selectQuery, where, compositeId);
+        
+        const { data: recordToDelete } = await selectQuery.maybeSingle();
         
         if (!recordToDelete) {
           throw new Error('Record not found');
         }
         
         // Then delete it
-        const { error } = await supabase
-          .from(tableName)
-          .delete()
-          .eq(primaryKey, value);
+        let deleteQuery = supabase.from(tableName).delete();
+        deleteQuery = applyCompositeWhere(deleteQuery, where, compositeId);
+        
+        const { error } = await deleteQuery;
         
         if (error) throw error;
         
@@ -1798,7 +1812,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, [fetchTotalCount]);
+    }, [fetchTotalCount, compositeId]);
 
     /**
      * Delete multiple records matching the filter criteria.

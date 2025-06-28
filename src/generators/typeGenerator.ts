@@ -351,23 +351,41 @@ ${model.fields
 
 /**
  * Unique identifier for finding a specific ${modelName} record.
- * Usually uses the ID field but can be any field marked as @unique in the schema.
+ * ${model.compositeId 
+   ? `Uses composite ID with fields: ${model.compositeId.fields.join(', ')}`
+   : 'Usually uses the ID field but can be any field marked as @unique in the schema.'
+ }
  * 
  * @example
- * // Find by ID
- * ${modelName.toLowerCase()}.findUnique({ id: "123" });
+ * ${model.compositeId 
+   ? `// Find by composite ID\n * ${modelName.toLowerCase()}.findUnique({ ${model.compositeId.fields.map(f => `${f}: "value"`).join(', ')} });`
+   : `// Find by ID\n * ${modelName.toLowerCase()}.findUnique({ id: "123" });`
+ }
  * 
  * @example
- * // Delete by ID
- * ${modelName.toLowerCase()}.delete({ id: "123" });
+ * ${model.compositeId 
+   ? `// Delete by composite ID\n * ${modelName.toLowerCase()}.delete({ ${model.compositeId.fields.map(f => `${f}: "value"`).join(', ')} });`
+   : `// Delete by ID\n * ${modelName.toLowerCase()}.delete({ id: "123" });`
+ }
  */
-export type ${modelName}WhereUniqueInput = { 
+export type ${modelName}WhereUniqueInput = ${
+  model.compositeId 
+    ? `{
+  ${model.compositeId.fields.map(fieldName => {
+      const field = model.fields.find(f => f.name === fieldName);
+      const fieldType = field ? (field.type === 'Int' ? 'number' : 'string') : 'string';
+      const isOptional = field ? field.isOptional : false;
+      return `${fieldName}${isOptional ? '?' : ''}: ${fieldType};`;
+    }).join('\n  ')}
+}`
+    : `{ 
   ${model.fields
     .filter((field) => field.isId)
     .map((field) => {
       return `${field.name}${field.isOptional ? '?' : ''}: ${field.type === 'Int' ? 'number' : 'string'};`;
     })
     .join('\n  ')}
+}`
 };
 
 /**
@@ -729,6 +747,7 @@ ${createInputProps
     defaultValues: Object.keys(defaultValues).length > 0 ? defaultValues : undefined,
     createdAtField,
     updatedAtField,
-    zodImports: model.zodImports // Pass through zod imports
+    zodImports: model.zodImports, // Pass through zod imports
+    compositeId: model.compositeId // Pass through composite ID information
   };
 }

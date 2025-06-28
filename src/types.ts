@@ -16,6 +16,11 @@ export type FieldInfo = {
   zodDirective?: string; // e.g., "z.string().min(3)" or "z.array(LLMNodeSchema).nullable()"
 };
 
+// Composite ID information
+export type CompositeIdInfo = {
+  fields: string[]; // Array of field names that make up the composite ID
+};
+
 // Search field information
 export type SearchFieldInfo = {
   name: string;
@@ -53,6 +58,8 @@ export type ModelInfo = {
   searchFields?: SearchFieldInfo[];
   // Add zod import support at model level
   zodImports?: ZodImportInfo[];
+  // Add composite ID support
+  compositeId?: CompositeIdInfo;
 };
 
 /**
@@ -69,4 +76,6 @@ export interface ProcessedModelInfo {
   updatedAtField?: string; // Add field name for updatedAt
   // Add zod import support for processed models
   zodImports?: ZodImportInfo[];
+  // Add composite ID support for processed models
+  compositeId?: CompositeIdInfo;
 }

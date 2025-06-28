@@ -107,7 +107,6 @@ export default function Home() {
     delete: deleteThing,
     count: thingCount,
     search: searchThings,
-    
   } = useSuparisma.thing({
     realtime: true,
     limit: itemsPerPage,
@@ -128,6 +127,20 @@ export default function Home() {
     // orderBy: {
     //   [sortField]: sortDirection
     // },
+  });
+
+  // Test composite ID functionality with UserRole hook
+  const { 
+    data: userRoles,
+    loading: isLoadingUserRoles,
+    error: userRoleError,
+    create: createUserRole,
+    update: updateUserRole,
+    delete: deleteUserRole,
+    findUnique: findUniqueUserRole
+  } = useSuparisma.userRole({
+    realtime: true,
+    limit: 5
   });
 
   // things?.[0]?.someJson;
@@ -490,6 +503,175 @@ export default function Home() {
         >
           Next
         </button>
+      </div>
+
+      {/* Composite ID Demo Section */}
+      <div className="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-lg">
+        <h2 className="text-xl font-bold mb-4 text-blue-800">
+          🔑 Composite ID Demo - UserRole Model
+        </h2>
+        <p className="text-sm text-blue-600 mb-4">
+          This section demonstrates composite ID support. The UserRole model uses a composite primary key of (userId, roleId).
+        </p>
+        
+        {/* UserRole Actions */}
+        <div className="flex gap-2 mb-4">
+          <button 
+            onClick={async () => {
+              // Test composite ID create
+              const result = await createUserRole({
+                userId: `user${Math.floor(Math.random() * 100)}`,
+                roleId: `role${Math.floor(Math.random() * 100)}`,
+                roleName: ['Admin', 'Editor', 'Viewer'][Math.floor(Math.random() * 3)],
+                assignedBy: 'system'
+              });
+              
+              if (result.error) {
+                console.error('Create error:', result.error);
+              } else {
+                console.log('Created UserRole:', result.data);
+              }
+            }}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm"
+          >
+            Create UserRole
+          </button>
+          
+          <button 
+            onClick={async () => {
+              if (userRoles && userRoles.length > 0) {
+                const role = userRoles[0];
+                // Test composite ID update - requires both userId and roleId
+                const result = await updateUserRole({
+                  where: { 
+                    userId: role.userId,
+                    roleId: role.roleId 
+                  },
+                  data: { 
+                    roleName: 'Updated Role Name',
+                    assignedBy: 'admin'
+                  }
+                });
+                
+                if (result.error) {
+                  console.error('Update error:', result.error);
+                } else {
+                  console.log('Updated UserRole:', result.data);
+                }
+              }
+            }}
+            disabled={!userRoles || userRoles.length === 0}
+            className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded text-sm disabled:opacity-50"
+          >
+            Update First Role
+          </button>
+          
+          <button 
+            onClick={async () => {
+              if (userRoles && userRoles.length > 0) {
+                const role = userRoles[0];
+                // Test composite ID delete - requires both userId and roleId
+                const result = await deleteUserRole({
+                  userId: role.userId,
+                  roleId: role.roleId
+                });
+                
+                if (result.error) {
+                  console.error('Delete error:', result.error);
+                } else {
+                  console.log('Deleted UserRole:', result.data);
+                }
+              }
+            }}
+            disabled={!userRoles || userRoles.length === 0}
+            className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm disabled:opacity-50"
+          >
+            Delete First Role
+          </button>
+          
+          <button 
+            onClick={async () => {
+              if (userRoles && userRoles.length > 0) {
+                const role = userRoles[0];
+                // Test composite ID findUnique - requires both userId and roleId
+                const result = await findUniqueUserRole({
+                  userId: role.userId,
+                  roleId: role.roleId
+                });
+                
+                if (result.error) {
+                  console.error('FindUnique error:', result.error);
+                } else {
+                  console.log('Found UserRole:', result.data);
+                }
+              }
+            }}
+            disabled={!userRoles || userRoles.length === 0}
+            className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded text-sm disabled:opacity-50"
+          >
+            Find First Role
+          </button>
+        </div>
+
+        {/* UserRole Table */}
+        <div className="overflow-x-auto">
+          <table className="min-w-full bg-white border border-gray-300 text-sm">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="py-2 px-3 border-b text-left">User ID</th>
+                <th className="py-2 px-3 border-b text-left">Role ID</th>
+                <th className="py-2 px-3 border-b text-left">Role Name</th>
+                <th className="py-2 px-3 border-b text-left">Assigned By</th>
+                <th className="py-2 px-3 border-b text-left">Active</th>
+                <th className="py-2 px-3 border-b text-left">Assigned At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoadingUserRoles ? (
+                <tr>
+                  <td colSpan={6} className="py-4 text-center">Loading UserRoles...</td>
+                </tr>
+              ) : userRoleError ? (
+                <tr>
+                  <td colSpan={6} className="py-4 text-center text-red-500">
+                    Error: {userRoleError.message}
+                  </td>
+                </tr>
+              ) : userRoles?.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-4 text-center text-gray-500">
+                    No user roles found. The table might not exist in the database yet.
+                  </td>
+                </tr>
+              ) : (
+                userRoles?.map((role) => (
+                  <tr key={`${role.userId}-${role.roleId}`} className="hover:bg-gray-50">
+                    <td className="py-2 px-3 border-b">{role.userId}</td>
+                    <td className="py-2 px-3 border-b">{role.roleId}</td>
+                    <td className="py-2 px-3 border-b">{role.roleName}</td>
+                    <td className="py-2 px-3 border-b">{role.assignedBy || 'N/A'}</td>
+                    <td className="py-2 px-3 border-b">
+                      <span className={`px-2 py-1 rounded text-xs ${role.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                        {role.active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 border-b">{new Date(role.assignedAt).toLocaleDateString()}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 p-3 bg-blue-100 border border-blue-300 rounded text-sm">
+          <strong>Composite ID Features Demonstrated:</strong>
+          <ul className="list-disc list-inside mt-2 space-y-1">
+            <li><code>UserRoleWhereUniqueInput</code> requires both <code>userId</code> and <code>roleId</code></li>
+            <li>All CRUD operations work with composite keys</li>
+            <li>Type safety ensures you can't forget required composite key fields</li>
+            <li>Realtime updates work correctly with composite IDs</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

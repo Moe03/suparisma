@@ -20,7 +20,8 @@ export function generateModelHookFile(modelInfo: ProcessedModelInfo): void {
     searchFields, 
     defaultValues,
     createdAtField = 'createdAt', // Default to camelCase but use actual field name if provided
-    updatedAtField = 'updatedAt'  // Default to camelCase but use actual field name if provided
+    updatedAtField = 'updatedAt', // Default to camelCase but use actual field name if provided
+    compositeId
   } = modelInfo;
 
   // Configure search fields if available
@@ -37,6 +38,11 @@ export function generateModelHookFile(modelInfo: ProcessedModelInfo): void {
   // Add createdAt/updatedAt field name config
   const fieldNamesConfig = 
     `${hasCreatedAt ? `,\n  // Field name for createdAt from Prisma schema\n  createdAtField: "${createdAtField}"` : ''}${hasUpdatedAt ? `,\n  // Field name for updatedAt from Prisma schema\n  updatedAtField: "${updatedAtField}"` : ''}`;
+
+  // Add composite ID config if available
+  const compositeIdConfig = compositeId
+    ? `,\n  // Composite ID configuration\n  compositeId: ${JSON.stringify(compositeId)}`
+    : '';
 
   // Generate the hook content
   const hookContent = `// THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
@@ -113,7 +119,7 @@ export const ${HOOK_NAME_PREFIX}${modelName} = createSuparismaHook<
 >({
   tableName: '${tableName}',
   hasCreatedAt: ${hasCreatedAt},
-  hasUpdatedAt: ${hasUpdatedAt}${searchConfig}${defaultValuesConfig}${fieldNamesConfig}
+  hasUpdatedAt: ${hasUpdatedAt}${searchConfig}${defaultValuesConfig}${fieldNamesConfig}${compositeIdConfig}
 }) as unknown as (options?: Use${modelName}Options) => ${modelName}HookApi;
 `;
 
