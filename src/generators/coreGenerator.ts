@@ -706,7 +706,6 @@ function clientSideFilterCheck<T>(record: any, where: T): boolean {
           }
         }
       } else if (record[key as keyof typeof record] !== value) {
-        console.log(\`Filter mismatch on \${key}\`, { expected: value, actual: record[key as keyof typeof record] });
         return false;
       }
     }
@@ -1220,18 +1219,15 @@ export function createSuparismaHook<
       
       if (hasComplexArrayFilters) {
         // Don't include filter at all for complex array operations
-        console.log(\`Setting up subscription for \${tableName} with NO FILTER (complex array filters detected) - will receive ALL events\`);
       } else if (where) {
         // Include filter for simple operations
         const filter = buildFilterString(where);
         if (filter) {
           subscriptionConfig.filter = filter;
         }
-        console.log(\`Setting up subscription for \${tableName} with database filter: \${filter}\`);
       } else if (realtimeFilter) {
         // Use custom realtime filter if provided
         subscriptionConfig.filter = realtimeFilter;
-        console.log(\`Setting up subscription for \${tableName} with custom filter: \${realtimeFilter}\`);
       }
       
       const channel = supabase
@@ -1240,7 +1236,6 @@ export function createSuparismaHook<
           'postgres_changes',
           subscriptionConfig,
           (payload) => {
-            console.log(\`🔥 REALTIME EVENT RECEIVED for \${tableName}:\`, payload.eventType, payload);
             
             // Access current options via refs inside the event handler
             const currentWhere = whereRef.current;
@@ -1250,7 +1245,6 @@ export function createSuparismaHook<
 
             // Skip realtime updates when search is active
             if (isSearchingRef.current) {
-              console.log('⏭️ Skipping realtime update - search is active');
               return;
             }
             
@@ -1259,7 +1253,6 @@ export function createSuparismaHook<
               setData((prev) => {
                 try {
                   const newRecord = payload.new as TWithRelations;
-                  console.log(\`Processing INSERT for \${tableName}\`, { newRecord });
                   
                   // ALWAYS check if this record matches our filter client-side
                   // This is especially important for complex array filters
@@ -1267,7 +1260,6 @@ export function createSuparismaHook<
                     const matchesFilter = clientSideFilterCheck(newRecord, currentWhere);
                     
                     if (!matchesFilter) {
-                      console.log('New record does not match filter criteria, skipping');
                       return prev;
                     }
                   }
@@ -1279,7 +1271,6 @@ export function createSuparismaHook<
                   );
                   
                   if (exists) {
-                    console.log('Record already exists, skipping insertion');
                     return prev;
                   }
                   
@@ -1354,7 +1345,6 @@ export function createSuparismaHook<
                   
                   // If the updated record doesn't match the filter, remove it from the list
                   if (!matchesFilter) {
-                    console.log('Updated record no longer matches filter, removing from list');
                     return prev.filter((item) =>
                       // @ts-ignore: Supabase typing issue
                       !('id' in item && 'id' in updatedRecord && item.id === updatedRecord.id)
@@ -1413,9 +1403,7 @@ export function createSuparismaHook<
               });
             } else if (payload.eventType === 'DELETE') {
               // Process delete event
-              console.log('🗑️ Processing DELETE event for', tableName);
               setData((prev) => {
-                console.log('🗑️ DELETE: Current data before deletion:', prev.length, 'items');
                 
                 // Access current options via refs
                 const currentWhere = whereRef.current;
@@ -1425,7 +1413,6 @@ export function createSuparismaHook<
 
                 // Skip if search is active
                 if (isSearchingRef.current) {
-                  console.log('⏭️ DELETE: Skipping - search is active');
                   return prev;
                 }
                 
@@ -1435,21 +1422,14 @@ export function createSuparismaHook<
                 // Filter out the deleted item
                 const filteredData = prev.filter((item) => {
                   // @ts-ignore: Supabase typing issue
-                  const shouldKeep = !('id' in item && 'id' in payload.old && item.id === payload.old.id);
-                  if (!shouldKeep) {
-                    console.log('🗑️ DELETE: Removing item with ID:', item.id);
-                  }
-                  return shouldKeep;
+                  return !('id' in item && 'id' in payload.old && item.id === payload.old.id);
                 });
-                
-                console.log('🗑️ DELETE: Data after deletion:', filteredData.length, 'items (was', currentSize, ')');
                 
                 // Fetch the updated count after the data changes
                 setTimeout(() => fetchTotalCount(), 0);
                 
                 // If we need to maintain the size with a limit
                 if (currentLimit && currentLimit > 0 && filteredData.length < currentSize && currentSize === currentLimit) { // Use ref value
-                  console.log(\`🗑️ DELETE: Record deleted with limit \${currentLimit}, will fetch additional record to maintain size\`);
                   
                   // Use setTimeout to ensure this state update completes first
                   setTimeout(() => {
@@ -1507,19 +1487,16 @@ export function createSuparismaHook<
             }
           }
         )
-        .subscribe((status) => {
-          console.log(\`Subscription status for \${tableName}\`, status);
-        });
+        .subscribe();
       
       // Store the channel ref
       channelRef.current = channel;
         
-      return () => {
-        console.log(\`Unsubscribing from \${channelId}\`);
-        if (channelRef.current) {
-          supabase.removeChannel(channelRef.current); // Correct way to remove channel
-          channelRef.current = null;
-        }
+              return () => {
+          if (channelRef.current) {
+            supabase.removeChannel(channelRef.current); // Correct way to remove channel
+            channelRef.current = null;
+          }
         
         if (searchTimeoutRef.current) {
           clearTimeout(searchTimeoutRef.current);
@@ -1564,7 +1541,6 @@ export function createSuparismaHook<
       if (initialLoadRef.current) {
         // Only reload if options have changed significantly
         if (optionsChanged()) {
-          console.log(\`Options changed for \${tableName}, reloading data\`);
           findMany({
             where,
             orderBy,
@@ -2087,5 +2063,4 @@ export function createSuparismaHook<
   }
 
   fs.writeFileSync(outputPath, coreContent);
-  console.log(`Generated core utility file at ${outputPath}`);
 }

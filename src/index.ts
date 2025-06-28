@@ -63,7 +63,6 @@ function checkEnvironmentVariables() {
     errorMessage += '\nPlease add these variables to your .env file or ensure they are available in your environment and try again.';
     throw new Error(errorMessage);
   }
-  console.log('✅ All required environment variables are set.');
 }
 
 /**
@@ -150,9 +149,6 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
  */
 async function configurePrismaTablesForSuparisma(schemaPath: string) {
   try {
-    // COMPLETELY BYPASS NORMAL OPERATION FOR SIMPLICITY
-    console.log('🔧 Using direct SQL approach to avoid PostgreSQL case sensitivity issues...');
-
     // Load environment variables
     dotenv.config();
 
@@ -170,8 +166,6 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
     const { Pool } = pg.default || pg;
     const pool = new Pool({ connectionString: process.env.DIRECT_URL });
 
-    console.log('🔌 Connected to PostgreSQL database for configuration.');
-
     const { rows: allTables } = await pool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
     );
@@ -186,28 +180,21 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
         continue;
       }
       const actualTableName = matchingTable.table_name;
-      console.log(`Processing model ${model.name} (table: "${actualTableName}")`);
 
       // Realtime setup (existing logic)
       if (model.enableRealtime) {
         const alterPublicationQuery = `ALTER PUBLICATION supabase_realtime ADD TABLE "${actualTableName}";`;
         try {
           await pool.query(alterPublicationQuery);
-          console.log(`  ✅ Added "${actualTableName}" to supabase_realtime publication for real-time updates.`);
         } catch (err: any) {
-          if (err.message.includes('already member')) {
-            console.log(`  ℹ️ Table "${actualTableName}" was already in supabase_realtime publication.`);
-          } else {
+          if (!err.message.includes('already member')) {
             console.error(`  ❌ Failed to add "${actualTableName}" to supabase_realtime: ${err.message}`);
           }
         }
-      } else {
-        console.log(`  ℹ️ Realtime disabled for model ${model.name}.`);
       }
 
       // Search setup
       if (model.searchFields.length > 0) {
-        console.log(`  🔍 Setting up full-text search for model ${model.name}:`);
         const { rows: columns } = await pool.query(
           `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
           [actualTableName]
@@ -226,7 +213,6 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
           const functionName = `search_${actualTableName.toLowerCase()}_by_${actualColumnName.toLowerCase()}_prefix`;
           const indexName = `idx_gin_search_${actualTableName.toLowerCase()}_${actualColumnName.toLowerCase()}`;
 
-          console.log(`    ➡️ Configuring field "${actualColumnName}":`);
           try {
             // Create search function
             const createFunctionQuery = `
@@ -239,7 +225,6 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
               END;
               $$ LANGUAGE plpgsql STABLE;`; // Added STABLE for potential performance benefits
             await pool.query(createFunctionQuery);
-            console.log(`      ✅ Created/Replaced RPC function: "${functionName}"(search_prefix text)`);
 
             // Create GIN index
             const createIndexQuery = `
@@ -252,37 +237,21 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
                   AND indexname = '${indexName}'
                 ) THEN
                   CREATE INDEX "${indexName}" ON "public"."${actualTableName}" USING GIN (to_tsvector('english', "${actualColumnName}"));
-                  RAISE NOTICE '      ✅ Created GIN index: "${indexName}" on "${actualTableName}"("${actualColumnName}")';
-                ELSE
-                  RAISE NOTICE '      ℹ️ GIN index "${indexName}" on "${actualTableName}"("${actualColumnName}") already exists.';
                 END IF;
               END;
               $$;`;
-            const indexResult = await pool.query(createIndexQuery);
-            // Output notices from the DO $$ block (PostgreSQL specific)
-            if (indexResult.rows.length > 0 && indexResult.rows[0].notice) {
-                console.log(indexResult.rows[0].notice.replace(/^NOTICE:  /, ''));
-            } else if (!indexResult.rows.find((r: any) => r.notice?.includes('Created GIN index'))) {
-                // If DO $$ block doesn't emit specific notice for creation and it didn't say exists.
-                // This is a fallback log, actual creation/existence is handled by the DO block.
-                // The important part is that the index will be there.
-            }
+            await pool.query(createIndexQuery);
 
           } catch (err: any) {
             console.error(`      ❌ Failed to set up search for "${actualTableName}"."${actualColumnName}": ${err.message}`);
           }
         }
-      } else {
-        console.log(`  ℹ️ No fields marked with // @enableSearch for model ${model.name}.`);
       }
-      console.log('---------------------------------------------------');
     }
 
     await pool.end();
-    console.log('🎉 Database configuration complete.');
   } catch (err) {
     console.error('❌ Error during database configuration:', err);
-    console.log('⚠️ Hook generation will continue, but database features like search or realtime might not be fully configured.');
   }
 }
 
@@ -291,18 +260,11 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
  */
 async function generateHooks() {
   try {
-    console.log('🚀 Starting Suparisma hook generation...');
-    
     checkEnvironmentVariables();
-
-    console.log(`Prisma schema path: ${PRISMA_SCHEMA_PATH}`);
-    console.log(`Output directory: ${OUTPUT_DIR}`);
 
     // Delete the entire output directory if it exists to clean up any stale files
     if (fs.existsSync(OUTPUT_DIR)) {
-      console.log(`🧹 Cleaning up previous generated files in ${OUTPUT_DIR}...`);
       fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
-      console.log(`✅ Removed previous generated directory`);
     }
 
     // Ensure all specific output directories exist, OUTPUT_DIR is the root and will be created if needed by sub-creations.
@@ -310,7 +272,6 @@ async function generateHooks() {
     dirsToEnsure.forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
-        console.log(`Created directory: ${dir}`)
       }
     });
 
@@ -331,8 +292,6 @@ async function generateHooks() {
     }
 
     generateMainIndexFile(modelInfos);
-
-    console.log(`✅ Successfully generated all suparisma hooks and types in "${OUTPUT_DIR}"!`);
   } catch (error) {
     console.error('❌ Error generating hooks:', error);
     process.exit(1);

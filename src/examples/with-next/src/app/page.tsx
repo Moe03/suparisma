@@ -148,9 +148,7 @@ export default function Home() {
   //   return <div>Loading...</div>;
   // }
 
-  // console.log(searchThings.queries);
-  
-  console.log(`loading value: ${isLoadingThing}`);
+
 
   return (
     <div className="container mx-auto p-4 font-[family-name:var(--font-geist-sans)]">
@@ -165,7 +163,6 @@ export default function Home() {
         </div>
         <input type="text" placeholder="Search" onChange={(e) => {
           const searchValue = e.target.value;
-          console.log(`searchValue: ${searchValue}`);
         
               searchThings.setQueries([{
                 field: "name",

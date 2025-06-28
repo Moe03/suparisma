@@ -20,5 +20,4 @@ export const supabase = createClient(
   }
 
   fs.writeFileSync(outputPath, supabaseClientContent);
-  console.log(`🚀 Generated Supabase client file at: ${outputPath}`);
 } 

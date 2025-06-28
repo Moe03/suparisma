@@ -120,5 +120,4 @@ export default useSuparisma;
   }
 
   fs.writeFileSync(outputPath, content);
-  console.log(`Generated main module file at ${outputPath}`);
 }

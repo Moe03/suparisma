@@ -719,7 +719,6 @@ ${createInputProps
   }
   
   fs.writeFileSync(outputPath, typeContent);
-  console.log(`Generated type definitions for ${modelName} at ${outputPath}`);
 
   return {
     modelName,

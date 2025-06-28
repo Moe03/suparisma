@@ -1166,7 +1166,7 @@ async function handleSubmit(event) {
       name: formData.name,
       someNumber: parseInt(formData.number)
     });
-    console.log('Created!', result);
+    // Handle successful creation
   } catch (err) {
     console.error('Failed to create thing:', err);
   }

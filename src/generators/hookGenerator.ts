@@ -125,5 +125,4 @@ export const ${HOOK_NAME_PREFIX}${modelName} = createSuparismaHook<
   }
 
   fs.writeFileSync(outputPath, hookContent);
-  console.log(`Generated hook for ${modelName} at ${outputPath}`);
 }
