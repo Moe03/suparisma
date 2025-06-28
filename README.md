@@ -23,6 +23,7 @@ A powerful, typesafe React hook generator for Supabase, driven by your Prisma sc
   - [Filtering Data](#filtering-data)
   - [⚠️ IMPORTANT: Using Dynamic Filters with React](#️-important-using-dynamic-filters-with-react)
   - [Array Filtering](#array-filtering)
+  - [OR/AND Conditions](#orand-conditions)
   - [Sorting Data](#sorting-data)
   - [Pagination](#pagination)
   - [Search Functionality](#search-functionality)
@@ -61,6 +62,7 @@ Suparisma bridges this gap by:
 - 🔄 **Real-time updates by default** for all tables (with opt-out capability)
 - 🔒 **Type-safe interfaces** for all database operations
 - 🔍 **Full-text search** with configurable annotations *(currently under maintenance)*
+- ⚡ **Advanced filtering** with OR/AND conditions for complex queries
 - 🔢 **Pagination and sorting** built into every hook
 - 🧩 **Prisma-like API** that feels familiar if you already use Prisma
 - 📱 **Works with any React framework** including Next.js, Remix, etc.
@@ -579,6 +581,215 @@ function ProductFilter() {
   );
 }
 ```
+
+### OR/AND Conditions
+
+Suparisma supports powerful logical operations to combine multiple filter conditions:
+
+#### OR Conditions - Match ANY condition
+
+Use `OR` to find records that match **any** of the provided conditions:
+
+```tsx
+// Find users with name "John" OR email containing "@admin"
+const { data: users } = useSuparisma.user({
+  where: {
+    OR: [
+      { name: "John" },
+      { email: { contains: "@admin" } }
+    ]
+  }
+});
+
+// Complex OR with multiple field types
+const { data: posts } = useSuparisma.post({
+  where: {
+    OR: [
+      { title: { contains: "react" } },
+      { tags: { has: ["typescript"] } },
+      { author: { name: "John Doe" } },
+      { publishedAt: { gte: new Date('2024-01-01') } }
+    ]
+  }
+});
+
+// OR with array operators
+const { data: products } = useSuparisma.product({
+  where: {
+    OR: [
+      { categories: { has: ["electronics"] } },
+      { categories: { has: ["gaming"] } },
+      { price: { lt: 100 } }
+    ]
+  }
+});
+```
+
+#### AND Conditions - Match ALL conditions
+
+Use `AND` for explicit conjunction (though regular object properties are ANDed by default):
+
+```tsx
+// Explicit AND conditions
+const { data: premiumUsers } = useSuparisma.user({
+  where: {
+    AND: [
+      { active: true },
+      { subscriptionTier: "premium" },
+      { lastLoginAt: { gte: new Date('2024-01-01') } }
+    ]
+  }
+});
+
+// Mix AND with other conditions
+const { data: qualifiedPosts } = useSuparisma.post({
+  where: {
+    published: true, // Regular condition (implicit AND)
+    AND: [
+      { views: { gte: 1000 } },
+      { likes: { gte: 100 } }
+    ]
+  }
+});
+```
+
+#### Combining OR and AND
+
+Create complex nested logic by combining OR and AND:
+
+```tsx
+// Advanced search: (Premium users OR moderators) AND active
+const { data: privilegedUsers } = useSuparisma.user({
+  where: {
+    active: true, // Must be active
+    OR: [
+      { role: "premium" },
+      { role: "moderator" }
+    ]
+  }
+});
+
+// Content filtering: (Recent posts OR popular posts) AND published
+const { data: featuredPosts } = useSuparisma.post({
+  where: {
+    published: true,
+    OR: [
+      { createdAt: { gte: new Date('2024-01-01') } }, // Recent
+      { views: { gte: 10000 } } // Popular
+    ]
+  }
+});
+
+// Complex search across multiple fields and conditions
+const { data: searchResults } = useSuparisma.product({
+  where: {
+    active: true,
+    AND: [
+      {
+        OR: [
+          { name: { contains: searchTerm } },
+          { description: { contains: searchTerm } },
+          { tags: { has: [searchTerm] } }
+        ]
+      },
+      {
+        OR: [
+          { price: { between: [minPrice, maxPrice] } },
+          { onSale: true }
+        ]
+      }
+    ]
+  }
+});
+```
+
+#### Real-World Examples
+
+**Multi-field search for e-commerce:**
+```tsx
+const { data: products } = useSuparisma.product({
+  where: {
+    OR: [
+      { name: { contains: "laptop" } },
+      { description: { contains: "laptop" } },
+      { categories: { has: ["computers", "electronics"] } },
+      { brand: { in: ["Apple", "Dell", "HP"] } }
+    ]
+  }
+});
+```
+
+**User permission filtering:**
+```tsx
+const { data: accessiblePosts } = useSuparisma.post({
+  where: {
+    OR: [
+      { public: true },
+      { authorId: currentUserId },
+      { 
+        AND: [
+          { published: true },
+          { collaborators: { has: [currentUserId] } }
+        ]
+      }
+    ]
+  }
+});
+```
+
+**Dynamic search with React state:**
+```tsx
+import { useMemo } from 'react';
+
+function SearchComponent() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [category, setCategory] = useState("");
+  const [priceRange, setPriceRange] = useState({ min: 0, max: 1000 });
+
+  // ✅ Use useMemo for stable object reference
+  const searchFilter = useMemo(() => {
+    const conditions = [];
+    
+    // Add search term condition
+    if (searchTerm) {
+      conditions.push({
+        OR: [
+          { name: { contains: searchTerm } },
+          { description: { contains: searchTerm } },
+          { tags: { has: [searchTerm] } }
+        ]
+      });
+    }
+    
+    // Add category condition
+    if (category) {
+      conditions.push({
+        categories: { has: [category] }
+      });
+    }
+    
+    // Add price range condition
+    conditions.push({
+      price: { gte: priceRange.min, lte: priceRange.max }
+    });
+    
+    return conditions.length > 0 ? { AND: conditions } : undefined;
+  }, [searchTerm, category, priceRange]);
+  
+  const { data: products } = useSuparisma.product({
+    where: searchFilter
+  });
+  
+  // ... rest of component
+}
+```
+
+#### Important Notes
+
+1. **Performance**: OR conditions may require client-side filtering for realtime updates
+2. **Realtime**: Complex OR/AND combinations automatically enable client-side filtering mode
+3. **Memory**: Use `useMemo` for dynamic OR/AND filters to maintain stable object references
+4. **Nesting**: You can nest OR within AND and vice versa for complex logic
 
 ### Sorting Data
 

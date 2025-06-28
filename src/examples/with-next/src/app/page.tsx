@@ -18,6 +18,12 @@ export default function Home() {
   const [arrayFilterExample, setArrayFilterExample] = useState("1");
   const [arrayOperator, setArrayOperator] = useState<'has' | 'hasEvery' | 'hasSome' | 'isEmpty'>('hasEvery');
   
+  // New OR/AND condition states
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [minNumber, setMinNumber] = useState<number | "">("");
+  const [maxNumber, setMaxNumber] = useState<number | "">("");
+  
   // Array Filtering Examples - You can now use powerful array operators:
   /*
     // Array contains ANY of the specified items
@@ -50,6 +56,29 @@ export default function Home() {
   
   // Create a stable where object that only changes when filters actually change
   const whereFilter = useMemo(() => {
+    // Advanced search with OR/AND conditions
+    if (showAdvancedSearch && (searchTerm || minNumber !== "" || maxNumber !== "")) {
+      return {
+        OR: [
+          // Search across name field
+          ...(searchTerm ? [{ name: { contains: searchTerm } }] : []),
+          // Search in array for the term
+          ...(searchTerm ? [{ stringArray: { has: [searchTerm] } }] : []),
+          // Number range conditions
+          ...(minNumber !== "" && maxNumber !== "" ? [{
+            AND: [
+              { someNumber: { gte: Number(minNumber) } },
+              { someNumber: { lte: Number(maxNumber) } }
+            ]
+          }] : []),
+          // Individual number conditions
+          ...(minNumber !== "" && maxNumber === "" ? [{ someNumber: { gte: Number(minNumber) } }] : []),
+          ...(maxNumber !== "" && minNumber === "" ? [{ someNumber: { lte: Number(maxNumber) } }] : [])
+        ]
+      };
+    }
+    
+    // Regular filters (existing logic)
     if (arrayFilterExample) {
       return {
         // Dynamic array filtering based on selected operator
@@ -67,7 +96,7 @@ export default function Home() {
       };
     }
     return undefined;
-  }, [arrayFilterExample, arrayOperator, enumFilter]);
+  }, [arrayFilterExample, arrayOperator, enumFilter, showAdvancedSearch, searchTerm, minNumber, maxNumber]);
   
   const { 
     data: things,
@@ -82,11 +111,23 @@ export default function Home() {
   } = useSuparisma.thing({
     realtime: true,
     limit: itemsPerPage,
-    offset: page * itemsPerPage,
-    where: whereFilter,
-    orderBy: {
-      [sortField]: sortDirection
+    where: {
+      OR: [
+        {
+         name: "Node API"
+        },
+        {
+          stringArray: {
+            has: ["angular", "typescript"]
+          }
+        }
+      ]
     },
+    offset: page * itemsPerPage,
+    // where: whereFilter,
+    // orderBy: {
+    //   [sortField]: sortDirection
+    // },
   });
 
   // things?.[0]?.someJson;
@@ -114,7 +155,14 @@ export default function Home() {
   return (
     <div className="container mx-auto p-4 font-[family-name:var(--font-geist-sans)]">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Suparisma Things</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Suparisma Things</h1>
+          {showAdvancedSearch && (
+            <p className="text-sm text-purple-600 mt-1">
+              🚀 Demonstrating OR/AND conditions with client-side filtering for realtime
+            </p>
+          )}
+        </div>
         <input type="text" placeholder="Search" onChange={(e) => {
           const searchValue = e.target.value;
           console.log(`searchValue: ${searchValue}`);
@@ -124,16 +172,145 @@ export default function Home() {
                 value: searchValue?.trim(),
               }]);
         }} />
-        <button 
-          onClick={() => createThing({ name: 'New Thing', someNumber: Math.floor(Math.random() * 100), stringArray: ['1', '2', '3'] })}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-        >
-          Create New Thing {isLoadingThing ? "..." : ""}
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => {
+              const randomNames = ['React Project', 'Vue App', 'Angular Site', 'Node API', 'Python Script', 'Java App'];
+              const randomArrays = [['react', 'frontend'], ['vue', 'javascript'], ['angular', 'typescript'], ['node', 'backend'], ['python', 'ai'], ['java', 'enterprise']];
+              const randomIndex = Math.floor(Math.random() * randomNames.length);
+              
+              createThing({ 
+                name: randomNames[randomIndex], 
+                someNumber: Math.floor(Math.random() * 100), 
+                stringArray: randomArrays[randomIndex]
+              });
+            }}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Create Sample Thing {isLoadingThing ? "..." : ""}
+          </button>
+          
+          {showAdvancedSearch && (
+            <button 
+              onClick={() => {
+                // Create a thing that matches the current search
+                const name = searchTerm ? `${searchTerm} Example` : 'OR/AND Test';
+                const number = minNumber !== "" ? Number(minNumber) + 5 : 50;
+                const array = searchTerm ? [searchTerm, 'test'] : ['demo', 'example'];
+                
+                createThing({ 
+                  name, 
+                  someNumber: number, 
+                  stringArray: array
+                });
+              }}
+              className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+            >
+              Create Matching Thing
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Filter and Sort Controls */}
-      <div className="mb-4 grid grid-cols-1 md:grid-cols-5 gap-4">
+      {/* Advanced Search Toggle */}
+      <div className="mb-4">
+        <button
+          onClick={() => {
+            setShowAdvancedSearch(!showAdvancedSearch);
+            // Clear all filters when toggling
+            if (showAdvancedSearch) {
+              setSearchTerm("");
+              setMinNumber("");
+              setMaxNumber("");
+              setArrayFilterExample("");
+              setEnumFilter("");
+            }
+          }}
+          className={`px-4 py-2 rounded text-sm font-medium ${
+            showAdvancedSearch 
+              ? 'bg-purple-500 text-white hover:bg-purple-600' 
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+        >
+          {showAdvancedSearch ? '🔍 Advanced OR/AND Search (Active)' : '🔍 Enable Advanced OR/AND Search'}
+        </button>
+        {showAdvancedSearch && (
+          <p className="text-sm text-gray-600 mt-1">
+            Search across multiple fields with OR conditions: name contains term OR array contains term OR number in range
+          </p>
+        )}
+      </div>
+
+      {/* Advanced Search Controls */}
+      {showAdvancedSearch && (
+        <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+          <h3 className="text-lg font-medium mb-3 text-purple-800">
+            🚀 Advanced OR/AND Search Demo
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="searchTerm" className="block text-sm font-medium text-gray-700 mb-1">
+                Search Term (name OR array)
+              </label>
+              <input
+                id="searchTerm"
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search in name or array..."
+                className="w-full p-2 border border-gray-300 rounded-md"
+              />
+              <small className="text-gray-500">
+                Searches in name field OR stringArray field
+              </small>
+            </div>
+            
+            <div>
+              <label htmlFor="minNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                Min Number (AND range)
+              </label>
+              <input
+                id="minNumber"
+                type="number"
+                value={minNumber}
+                onChange={(e) => setMinNumber(e.target.value === "" ? "" : Number(e.target.value))}
+                placeholder="Minimum..."
+                className="w-full p-2 border border-gray-300 rounded-md"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="maxNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                Max Number (AND range)
+              </label>
+              <input
+                id="maxNumber"
+                type="number"
+                value={maxNumber}
+                onChange={(e) => setMaxNumber(e.target.value === "" ? "" : Number(e.target.value))}
+                placeholder="Maximum..."
+                className="w-full p-2 border border-gray-300 rounded-md"
+              />
+            </div>
+          </div>
+          
+          <div className="mt-3 p-3 bg-white border border-purple-200 rounded text-sm">
+            <strong>Logic:</strong> Find records where:
+            <br />
+            <code className="bg-gray-100 p-1 rounded text-xs">
+              {searchTerm && `(name contains "${searchTerm}" OR stringArray contains "${searchTerm}")`}
+              {searchTerm && (minNumber !== "" || maxNumber !== "") && " OR "}
+              {minNumber !== "" && maxNumber !== "" && `(someNumber >= ${minNumber} AND someNumber <= ${maxNumber})`}
+              {minNumber !== "" && maxNumber === "" && `someNumber >= ${minNumber}`}
+              {minNumber === "" && maxNumber !== "" && `someNumber <= ${maxNumber}`}
+              {!searchTerm && minNumber === "" && maxNumber === "" && "No conditions set"}
+            </code>
+          </div>
+        </div>
+      )}
+
+      {/* Regular Filter and Sort Controls */}
+      <div className={`mb-4 grid grid-cols-1 md:grid-cols-5 gap-4 ${showAdvancedSearch ? 'opacity-50 pointer-events-none' : ''}`}>
         <div>
           <label htmlFor="enumFilter" className="block text-sm font-medium text-gray-700 mb-1">
             Filter by Enum
@@ -282,7 +459,10 @@ export default function Home() {
             {(things?.length === 0 && !isLoadingThing) && (
               <tr>
                 <td colSpan={6} className="py-4 px-4 text-center text-gray-500">
-                  No things found.
+                  {showAdvancedSearch 
+                    ? "No things found matching your OR/AND search criteria. Try adjusting your search terms or create a matching thing."
+                    : "No things found."
+                  }
                 </td>
               </tr>
             )}
@@ -298,7 +478,14 @@ export default function Home() {
         >
           Previous
         </button>
-        <span className="py-2 px-4">Page {page + 1} - {Math.ceil(Number(thingCount) / itemsPerPage)} - Total: {thingCount}</span>
+        <span className="py-2 px-4">
+          Page {page + 1} - {Math.ceil(Number(thingCount) / itemsPerPage)} - Total: {thingCount}
+          {showAdvancedSearch && (
+            <span className="ml-2 text-purple-600 text-sm font-medium">
+              (OR/AND filtering active)
+            </span>
+          )}
+        </span>
         <button
           onClick={() => setPage(prev => prev + 1)}
           disabled={!things || things.length < itemsPerPage}

@@ -139,44 +139,47 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
   // Generate imports section for zod custom types
   let customImports = '';
   if (model.zodImports && model.zodImports.length > 0) {
-    // Add zod import for type inference
-    customImports = 'import { z } from \'zod\';\n';
-    
-    // Get the zod schemas file path from environment variable
-    const zodSchemasPath = process.env.ZOD_SCHEMAS_FILE_PATH || '../commonTypes';
-    
-    // Add custom imports with environment variable path
-    customImports += model.zodImports
-      .map(zodImport => {
-        // Extract the types from the original import statement
-        const typeMatch = zodImport.importStatement.match(/import\s+{\s*([^}]+)\s*}\s+from/);
-        if (typeMatch) {
-          const types = typeMatch[1].trim();
-          return `import { ${types} } from '${zodSchemasPath}'`;
-        }
-        // Fallback to original import if parsing fails
-        return zodImport.importStatement;
-      })
-      .join('\n') + '\n\n';
+    try {
+      // Get the zod schemas file path from environment variable
+      const zodSchemasPath = process.env.ZOD_SCHEMAS_FILE_PATH || '../commonTypes';
       
-    // Add type definitions for imported zod schemas if needed
-    // This is a simplified approach - you might want to make this more sophisticated
-    const customTypeDefinitions = model.zodImports
-      .flatMap(zodImport => zodImport.types)
-      .filter((type, index, array) => array.indexOf(type) === index) // Remove duplicates
-      .map(type => {
-        // If it ends with 'Schema', create a corresponding type
-        if (type.endsWith('Schema')) {
-          const typeName = type.replace('Schema', '');
-          return `export type ${typeName} = z.infer<typeof ${type}>;`;
-        }
-        return '';
-      })
-      .filter(Boolean)
-      .join('\n');
-      
-    if (customTypeDefinitions) {
-      customImports += customTypeDefinitions + '\n\n';
+      // Add custom imports with environment variable path, but make them conditional
+      const importStatements = model.zodImports
+        .map(zodImport => {
+          // Extract the types from the original import statement
+          const typeMatch = zodImport.importStatement.match(/import\s+{\s*([^}]+)\s*}\s+from/);
+          if (typeMatch) {
+            const types = typeMatch[1].trim();
+            return `// Optional: install zod and create the commonTypes file if you want type safety for JSON fields\n// import { ${types} } from '${zodSchemasPath}'`;
+          }
+          return `// ${zodImport.importStatement}`;
+        })
+        .join('\n') + '\n\n';
+        
+      customImports += importStatements;
+        
+      // Add type definitions for imported zod schemas as simple types
+      const customTypeDefinitions = model.zodImports
+        .flatMap(zodImport => zodImport.types)
+        .filter((type, index, array) => array.indexOf(type) === index) // Remove duplicates
+        .map(type => {
+          // If it ends with 'Schema', create a corresponding type as any for now
+          if (type.endsWith('Schema')) {
+            const typeName = type.replace('Schema', '');
+            return `// Fallback type - replace with actual type if you implement zod schemas\nexport type ${typeName} = any;`;
+          }
+          return '';
+        })
+        .filter(Boolean)
+        .join('\n');
+        
+      if (customTypeDefinitions) {
+        customImports += customTypeDefinitions + '\n\n';
+      }
+    } catch (error) {
+      // If there's any error with zod imports, just use a fallback
+      console.warn('Warning: Skipping custom zod imports due to configuration issues');
+      customImports = '';
     }
   }
 
@@ -290,6 +293,28 @@ ${withRelationsProps
   .join(',\n')}
  *   }
  * });
+ * 
+ * @example
+ * // OR conditions - find records matching ANY condition
+ * ${modelName.toLowerCase()}.findMany({
+ *   where: {
+ *     OR: [
+ *       { name: "John" },
+ *       { email: { contains: "@admin" } }
+ *     ]
+ *   }
+ * });
+ * 
+ * @example
+ * // AND conditions - find records matching ALL conditions
+ * ${modelName.toLowerCase()}.findMany({
+ *   where: {
+ *     AND: [
+ *       { active: true },
+ *       { age: { gte: 18 } }
+ *     ]
+ *   }
+ * });
  */
 export type ${modelName}WhereInput = {
 ${model.fields
@@ -315,6 +340,12 @@ ${model.fields
       return '';
     }).filter(Boolean)
   )
+  .concat([
+    '  /** OR condition - match records that satisfy ANY of the provided conditions */',
+    `  OR?: ${modelName}WhereInput[];`,
+    '  /** AND condition - match records that satisfy ALL of the provided conditions */',
+    `  AND?: ${modelName}WhereInput[];`
+  ])
   .join('\n')}
 };
 
