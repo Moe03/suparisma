@@ -89,6 +89,21 @@ export type FilterOperators<T> = {
 // Type for a single field in an advanced where filter
 export type AdvancedWhereInput<T> = {
   [K in keyof T]?: T[K] | FilterOperators<T[K]>;
+} & {
+  /** 
+   * OR condition - match records that satisfy ANY of the provided conditions
+   * @example
+   * // Find users where name is "John" OR email contains "@admin"
+   * { OR: [{ name: "John" }, { email: { contains: "@admin" } }] }
+   */
+  OR?: AdvancedWhereInput<T>[];
+  /** 
+   * AND condition - match records that satisfy ALL of the provided conditions (default behavior)
+   * @example
+   * // Find users where name is "John" AND age > 18
+   * { AND: [{ name: "John" }, { age: { gt: 18 } }] }
+   */
+  AND?: AdvancedWhereInput<T>[];
 };
 
 /**
@@ -173,6 +188,19 @@ export type SearchState = {
 };
 
 /**
+ * Escape values for Supabase filter strings
+ */
+function escapeFilterValue(value: any): string {
+  if (typeof value === 'string') {
+    // If the string contains spaces or special characters, wrap it in quotes
+    if (value.includes(' ') || value.includes(',') || value.includes('(') || value.includes(')')) {
+      return \`"\${value.replace(/"/g, '\\\\"')}"\`;
+    }
+  }
+  return String(value);
+}
+
+/**
  * Compare two values for sorting with proper type handling
  */
 function compareValues(a: any, b: any, direction: 'asc' | 'desc'): number {
@@ -210,9 +238,73 @@ export function buildFilterString<T>(where?: T): string | undefined {
   if (!where) return undefined;
   
   const filters: string[] = [];
+  const orConditions: string[] = [];
   
   for (const [key, value] of Object.entries(where)) {
     if (value !== undefined) {
+      // Handle OR conditions
+      if (key === 'OR' && Array.isArray(value)) {
+        const orParts: string[] = [];
+        for (const orCondition of value) {
+          // Build individual OR condition parts using proper dot notation
+          for (const [orKey, orValue] of Object.entries(orCondition)) {
+            if (orValue !== undefined) {
+              if (typeof orValue === 'object' && orValue !== null) {
+                // Handle advanced operators in OR conditions
+                const advancedOps = orValue as unknown as FilterOperators<any>;
+                
+                if ('equals' in advancedOps && advancedOps.equals !== undefined) {
+                  orParts.push(\`\${orKey}.eq.\${advancedOps.equals}\`);
+                } else if ('contains' in advancedOps && advancedOps.contains !== undefined) {
+                  orParts.push(\`\${orKey}.ilike.*\${advancedOps.contains}*\`);
+                } else if ('has' in advancedOps && advancedOps.has !== undefined) {
+                  // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+                  const arrayValue = \`{\${advancedOps.has.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
+                  orParts.push(\`\${orKey}.ov.\${arrayValue}\`);
+                } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+                  // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+                  const arrayValue = \`{\${advancedOps.hasEvery.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
+                  orParts.push(\`\${orKey}.cs.\${arrayValue}\`);
+                } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+                  // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+                  const arrayValue = \`{\${advancedOps.hasSome.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
+                  orParts.push(\`\${orKey}.ov.\${arrayValue}\`);
+                } else if ('gt' in advancedOps && advancedOps.gt !== undefined) {
+                  orParts.push(\`\${orKey}.gt.\${advancedOps.gt}\`);
+                } else if ('gte' in advancedOps && advancedOps.gte !== undefined) {
+                  orParts.push(\`\${orKey}.gte.\${advancedOps.gte}\`);
+                } else if ('lt' in advancedOps && advancedOps.lt !== undefined) {
+                  orParts.push(\`\${orKey}.lt.\${advancedOps.lt}\`);
+                } else if ('lte' in advancedOps && advancedOps.lte !== undefined) {
+                  orParts.push(\`\${orKey}.lte.\${advancedOps.lte}\`);
+                } else if ('in' in advancedOps && advancedOps.in?.length) {
+                  orParts.push(\`\${orKey}.in.(\${advancedOps.in.join(',')})\`);
+                }
+              } else {
+                // Simple equality in OR condition
+                orParts.push(\`\${orKey}.eq.\${escapeFilterValue(orValue)}\`);
+              }
+            }
+          }
+        }
+        
+        if (orParts.length > 0) {
+          orConditions.push(\`or(\${orParts.join(',')})\`);
+        }
+        continue;
+      }
+      
+      // Handle AND conditions (explicit)
+      if (key === 'AND' && Array.isArray(value)) {
+        for (const andCondition of value) {
+          const andFilter = buildFilterString(andCondition);
+          if (andFilter) {
+            filters.push(andFilter);
+          }
+        }
+        continue;
+      }
+      
       if (typeof value === 'object' && value !== null) {
         // Handle advanced operators
         const advancedOps = value as unknown as FilterOperators<any>;
@@ -260,19 +352,22 @@ export function buildFilterString<T>(where?: T): string | undefined {
         // Array-specific operators
         if ('has' in advancedOps && advancedOps.has !== undefined) {
           // Array contains ANY of the specified items (overlaps)
-          const arrayValue = JSON.stringify(advancedOps.has);
+          // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+          const arrayValue = \`{\${advancedOps.has.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
           filters.push(\`\${key}=ov.\${arrayValue}\`);
         }
         
         if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
           // Array contains ALL of the specified items (contains)
-          const arrayValue = JSON.stringify(advancedOps.hasEvery);
+          // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+          const arrayValue = \`{\${advancedOps.hasEvery.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
           filters.push(\`\${key}=cs.\${arrayValue}\`);
         }
         
         if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
           // Array contains ANY of the specified items (overlaps)
-          const arrayValue = JSON.stringify(advancedOps.hasSome);
+          // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+          const arrayValue = \`{\${advancedOps.hasSome.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
           filters.push(\`\${key}=ov.\${arrayValue}\`);
         }
         
@@ -292,7 +387,18 @@ export function buildFilterString<T>(where?: T): string | undefined {
     }
   }
   
-  return filters.length > 0 ? filters.join(',') : undefined;
+  // Combine filters with OR conditions
+  const allConditions: string[] = [];
+  
+  if (filters.length > 0) {
+    allConditions.push(filters.join(','));
+  }
+  
+  if (orConditions.length > 0) {
+    allConditions.push(\`or(\${orConditions.join(',')})\`);
+  }
+  
+  return allConditions.length > 0 ? allConditions.join(',') : undefined;
 }
 
 /**
@@ -309,6 +415,69 @@ export function applyFilter<T>(
   // Apply each filter condition
   for (const [key, value] of Object.entries(where)) {
     if (value !== undefined) {
+      // Handle OR conditions
+      if (key === 'OR' && Array.isArray(value)) {
+        // For OR conditions, build the proper dot notation filter string
+        const orParts: string[] = [];
+        
+        for (const orCondition of value) {
+          for (const [orKey, orValue] of Object.entries(orCondition)) {
+            if (orValue !== undefined) {
+              if (typeof orValue === 'object' && orValue !== null) {
+                // Handle advanced operators in OR conditions
+                const advancedOps = orValue as unknown as FilterOperators<any>;
+                
+                if ('equals' in advancedOps && advancedOps.equals !== undefined) {
+                  orParts.push(\`\${orKey}.eq.\${advancedOps.equals}\`);
+                } else if ('contains' in advancedOps && advancedOps.contains !== undefined) {
+                  orParts.push(\`\${orKey}.ilike.*\${advancedOps.contains}*\`);
+                } else if ('has' in advancedOps && advancedOps.has !== undefined) {
+                  // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+                  const arrayValue = \`{\${advancedOps.has.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
+                  orParts.push(\`\${orKey}.ov.\${arrayValue}\`);
+                } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+                  // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+                  const arrayValue = \`{\${advancedOps.hasEvery.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
+                  orParts.push(\`\${orKey}.cs.\${arrayValue}\`);
+                } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+                  // Use PostgreSQL array syntax: {item1,item2} not ["item1","item2"]
+                  const arrayValue = \`{\${advancedOps.hasSome.map((item: any) => escapeFilterValue(item)).join(',')}}\`;
+                  orParts.push(\`\${orKey}.ov.\${arrayValue}\`);
+                } else if ('gt' in advancedOps && advancedOps.gt !== undefined) {
+                  orParts.push(\`\${orKey}.gt.\${advancedOps.gt}\`);
+                } else if ('gte' in advancedOps && advancedOps.gte !== undefined) {
+                  orParts.push(\`\${orKey}.gte.\${advancedOps.gte}\`);
+                } else if ('lt' in advancedOps && advancedOps.lt !== undefined) {
+                  orParts.push(\`\${orKey}.lt.\${advancedOps.lt}\`);
+                } else if ('lte' in advancedOps && advancedOps.lte !== undefined) {
+                  orParts.push(\`\${orKey}.lte.\${advancedOps.lte}\`);
+                } else if ('in' in advancedOps && advancedOps.in?.length) {
+                  orParts.push(\`\${orKey}.in.(\${advancedOps.in.join(',')})\`);
+                }
+              } else {
+                // Simple equality in OR condition
+                orParts.push(\`\${orKey}.eq.\${escapeFilterValue(orValue)}\`);
+              }
+            }
+          }
+        }
+        
+        if (orParts.length > 0) {
+          // @ts-ignore: Supabase typing issue
+          filteredQuery = filteredQuery.or(orParts.join(','));
+        }
+        continue;
+      }
+      
+      // Handle AND conditions (explicit)
+      if (key === 'AND' && Array.isArray(value)) {
+        // For explicit AND conditions, apply each condition normally
+        for (const andCondition of value) {
+          filteredQuery = applyFilter(filteredQuery, andCondition);
+        }
+        continue;
+      }
+      
       if (typeof value === 'object' && value !== null) {
         // Handle advanced operators
         const advancedOps = value as unknown as FilterOperators<any>;
@@ -441,6 +610,112 @@ export function applyOrderBy<T>(
 }
 
 /**
+ * Client-side filter validation for realtime events
+ */
+function clientSideFilterCheck<T>(record: any, where: T): boolean {
+  if (!where) return true;
+  
+  for (const [key, value] of Object.entries(where)) {
+    if (value !== undefined) {
+      // Handle OR conditions
+      if (key === 'OR' && Array.isArray(value)) {
+        // For OR, at least one condition must match
+        const orMatches = value.some(orCondition => clientSideFilterCheck(record, orCondition));
+        if (!orMatches) {
+          return false;
+        }
+        continue;
+      }
+      
+      // Handle AND conditions (explicit)
+      if (key === 'AND' && Array.isArray(value)) {
+        // For AND, all conditions must match
+        const andMatches = value.every(andCondition => clientSideFilterCheck(record, andCondition));
+        if (!andMatches) {
+          return false;
+        }
+        continue;
+      }
+      
+      if (typeof value === 'object' && value !== null) {
+        // Handle complex array filters client-side
+        const advancedOps = value as any;
+        const recordValue = record[key as keyof typeof record] as any;
+        
+        // Array-specific operators validation
+        if ('has' in advancedOps && advancedOps.has !== undefined) {
+          // Array contains ANY of the specified items
+          if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) {
+            return false;
+          }
+        } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+          // Array contains ALL of the specified items
+          if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) {
+            return false;
+          }
+        } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+          // Array contains ANY of the specified items
+          if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) {
+            return false;
+          }
+        } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
+          // Array is empty or not empty
+          const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
+          if (isEmpty !== advancedOps.isEmpty) {
+            return false;
+          }
+        } else if ('equals' in advancedOps && advancedOps.equals !== undefined) {
+          if (recordValue !== advancedOps.equals) {
+            return false;
+          }
+        } else if ('not' in advancedOps && advancedOps.not !== undefined) {
+          if (recordValue === advancedOps.not) {
+            return false;
+          }
+        } else if ('gt' in advancedOps && advancedOps.gt !== undefined) {
+          if (!(recordValue > advancedOps.gt)) {
+            return false;
+          }
+        } else if ('gte' in advancedOps && advancedOps.gte !== undefined) {
+          if (!(recordValue >= advancedOps.gte)) {
+            return false;
+          }
+        } else if ('lt' in advancedOps && advancedOps.lt !== undefined) {
+          if (!(recordValue < advancedOps.lt)) {
+            return false;
+          }
+        } else if ('lte' in advancedOps && advancedOps.lte !== undefined) {
+          if (!(recordValue <= advancedOps.lte)) {
+            return false;
+          }
+        } else if ('in' in advancedOps && advancedOps.in !== undefined) {
+          if (!advancedOps.in.includes(recordValue)) {
+            return false;
+          }
+        } else if ('contains' in advancedOps && advancedOps.contains !== undefined) {
+          if (!String(recordValue).toLowerCase().includes(String(advancedOps.contains).toLowerCase())) {
+            return false;
+          }
+        } else if ('startsWith' in advancedOps && advancedOps.startsWith !== undefined) {
+          if (!String(recordValue).toLowerCase().startsWith(String(advancedOps.startsWith).toLowerCase())) {
+            return false;
+          }
+        } else if ('endsWith' in advancedOps && advancedOps.endsWith !== undefined) {
+          if (!String(recordValue).toLowerCase().endsWith(String(advancedOps.endsWith).toLowerCase())) {
+            return false;
+          }
+        }
+      } else if (record[key as keyof typeof record] !== value) {
+        console.log(\`Filter mismatch on \${key}\`, { expected: value, actual: record[key as keyof typeof record] });
+        return false;
+      }
+    }
+  }
+  
+  return true;
+}
+
+/**
  * Core hook factory function that creates a type-safe realtime hook for a specific model.
  * This is the foundation for all Suparisma hooks.
  */
@@ -483,12 +758,23 @@ export function createSuparismaHook<
    * const users = useSuparismaUser();
    * const { data, loading, error } = users;
    * 
-   * @example
-   * // With filtering
-   * const users = useSuparismaUser({ 
-   *   where: { role: 'admin' },
-   *   orderBy: { created_at: 'desc' }
-   * });
+    * @example
+ * // With filtering
+ * const users = useSuparismaUser({ 
+ *   where: { role: 'admin' },
+ *   orderBy: { created_at: 'desc' }
+ * });
+ * 
+ * @example
+ * // With OR conditions for search
+ * const users = useSuparismaUser({ 
+ *   where: { 
+ *     OR: [
+ *       { name: { contains: "john" } },
+ *       { email: { contains: "john" } }
+ *     ]
+ *   }
+ * });
    */
   return function useSuparismaHook(options: SuparismaOptions<TWhereInput, TOrderByInput> = {}) {
     const {
@@ -699,19 +985,7 @@ export function createSuparismaHook<
           
           // Apply any where conditions client-side
           if (where) {
-            results = results.filter((item) => {
-              for (const [key, value] of Object.entries(where)) {
-                if (typeof value === 'object' && value !== null) {
-                  // Skip complex filters for now
-                  continue;
-                }
-                
-                if (item[key as keyof typeof item] !== value) {
-                  return false;
-                }
-              }
-              return true;
-            });
+            results = results.filter((item) => clientSideFilterCheck(item, where));
           }
           
           // Set count directly for search results
@@ -907,19 +1181,33 @@ export function createSuparismaHook<
       
       const channelId = channelName || \`changes_to_\${tableName}_\${Math.random().toString(36).substring(2, 15)}\`;
       
-      // Check if we have complex array filters that should be handled client-side only
+      // Check if we have complex array filters or OR/AND conditions that should be handled client-side only
       let hasComplexArrayFilters = false;
       if (where) {
-        for (const [key, value] of Object.entries(where)) {
-          if (typeof value === 'object' && value !== null) {
-            const advancedOps = value as any;
-            // Check for complex array operators
-            if ('has' in advancedOps || 'hasEvery' in advancedOps || 'hasSome' in advancedOps || 'isEmpty' in advancedOps) {
-              hasComplexArrayFilters = true;
-              break;
+        const checkForComplexFilters = (whereClause: any): boolean => {
+          for (const [key, value] of Object.entries(whereClause)) {
+            // OR/AND conditions require client-side filtering
+            if (key === 'OR' || key === 'AND') {
+              return true;
+            }
+            
+            if (typeof value === 'object' && value !== null) {
+              // Check if it's an array of conditions (nested OR/AND)
+              if (Array.isArray(value)) {
+                return true;
+              }
+              
+              const advancedOps = value as any;
+              // Check for complex array operators
+              if ('has' in advancedOps || 'hasEvery' in advancedOps || 'hasSome' in advancedOps || 'isEmpty' in advancedOps) {
+                return true;
+              }
             }
           }
-        }
+          return false;
+        };
+        
+        hasComplexArrayFilters = checkForComplexFilters(where);
       }
       
       // For complex array filters, use no database filter and rely on client-side filtering
@@ -976,49 +1264,7 @@ export function createSuparismaHook<
                   // ALWAYS check if this record matches our filter client-side
                   // This is especially important for complex array filters
                   if (currentWhere) { // Use ref value
-                    let matchesFilter = true;
-                    
-                    // Check each filter condition client-side for complex filters
-                    for (const [key, value] of Object.entries(currentWhere)) {
-                      if (typeof value === 'object' && value !== null) {
-                        // Handle complex array filters client-side
-                        const advancedOps = value as any;
-                        const recordValue = newRecord[key as keyof typeof newRecord] as any;
-                        
-                        // Array-specific operators validation
-                        if ('has' in advancedOps && advancedOps.has !== undefined) {
-                          // Array contains ANY of the specified items
-                          if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
-                          // Array contains ALL of the specified items
-                          if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
-                          // Array contains ANY of the specified items
-                          if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
-                          // Array is empty or not empty
-                          const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
-                          if (isEmpty !== advancedOps.isEmpty) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        }
-                        // Add other complex filter validations as needed
-                      } else if (newRecord[key as keyof typeof newRecord] !== value) {
-                        matchesFilter = false;
-                        console.log(\`Filter mismatch on \${key}\`, { expected: value, actual: newRecord[key as keyof typeof newRecord] });
-                        break;
-                      }
-                    }
+                    const matchesFilter = clientSideFilterCheck(newRecord, currentWhere);
                     
                     if (!matchesFilter) {
                       console.log('New record does not match filter criteria, skipping');
@@ -1104,46 +1350,7 @@ export function createSuparismaHook<
                 
                 // Check if the updated record still matches our current filter
                 if (currentWhere) {
-                  let matchesFilter = true;
-                  
-                  for (const [key, value] of Object.entries(currentWhere)) {
-                    if (typeof value === 'object' && value !== null) {
-                      // Handle complex array filters client-side
-                      const advancedOps = value as any;
-                      const recordValue = updatedRecord[key as keyof typeof updatedRecord] as any;
-                      
-                      // Array-specific operators validation
-                      if ('has' in advancedOps && advancedOps.has !== undefined) {
-                        // Array contains ANY of the specified items
-                        if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
-                        // Array contains ALL of the specified items
-                        if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
-                        // Array contains ANY of the specified items
-                        if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
-                        // Array is empty or not empty
-                        const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
-                        if (isEmpty !== advancedOps.isEmpty) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      }
-                    } else if (updatedRecord[key as keyof typeof updatedRecord] !== value) {
-                      matchesFilter = false;
-                      break;
-                    }
-                  }
+                  const matchesFilter = clientSideFilterCheck(updatedRecord, currentWhere);
                   
                   // If the updated record doesn't match the filter, remove it from the list
                   if (!matchesFilter) {
@@ -1869,6 +2076,7 @@ export function createSuparismaHook<
       : api;
   };
 }
+
 `; // Ensure template literal is closed
 
   // Output to the UTILS_DIR
