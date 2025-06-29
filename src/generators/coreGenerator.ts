@@ -902,7 +902,7 @@ export function createSuparismaHook<
           setCount(totalCount || 0);
         }
       } catch (err) {
-        console.error(\`Error fetching count for \${tableName}:\`, err);
+        // Silently handle count fetch errors
       }
     }, [where, tableName]);
     
@@ -1020,7 +1020,7 @@ export function createSuparismaHook<
           // Process each search result
           searchResults.forEach((result, index) => {
             if (result.error) {
-              console.error(\`Search error for \${queries[index]?.field}:\`, result.error);
+              // Silently handle search errors to avoid console spam
               return;
             }
             
@@ -1078,7 +1078,6 @@ export function createSuparismaHook<
           // Update data with search results
           setData(paginatedResults);
         } catch (err) {
-          console.error('Search error:', err);
           setError(err as Error);
         } finally {
           setSearchLoading(false);
@@ -1167,7 +1166,6 @@ export function createSuparismaHook<
         
         return { data: typedData, error: null };
       } catch (err: any) {
-        console.error('Error finding records:', err);
         setError(err);
         return { data: null, error: err };
       } finally {
@@ -1204,7 +1202,6 @@ export function createSuparismaHook<
         
         return { data: data as TWithRelations, error: null };
       } catch (err: any) {
-        console.error('Error finding unique record:', err);
         setError(err);
         return { data: null, error: err };
       } finally {
@@ -1363,7 +1360,7 @@ export function createSuparismaHook<
                   
                   return newData;
                 } catch (error) {
-                  console.error('Error processing INSERT event:', error);
+                  // Silently handle realtime processing errors
                   return prev;
                 }
               });
@@ -1688,7 +1685,6 @@ export function createSuparismaHook<
         // Return created record
         return { data: result?.[0] as TWithRelations, error: null };
       } catch (err: any) {
-        console.error('Error creating record:', err);
         setError(err);
         return { data: null, error: err };
       } finally {
@@ -1754,7 +1750,6 @@ export function createSuparismaHook<
         // Return updated record
         return { data: data?.[0] as TWithRelations, error: null };
       } catch (err: any) {
-        console.error('Error updating record:', err);
         setError(err);
         return { data: null, error: err };
       } finally {
@@ -1806,7 +1801,6 @@ export function createSuparismaHook<
         // Return the deleted record
         return { data: recordToDelete as TWithRelations, error: null };
       } catch (err: any) {
-        console.error('Error deleting record:', err);
         setError(err);
         return { data: null, error: err };
       } finally {
@@ -1875,7 +1869,6 @@ export function createSuparismaHook<
         // Return the count of deleted records
         return { count: recordsToDelete.length, error: null };
       } catch (err: any) {
-        console.error('Error deleting multiple records:', err);
         setError(err);
         return { count: 0, error: err };
       } finally {
@@ -1917,7 +1910,6 @@ export function createSuparismaHook<
         // @ts-ignore: Supabase typing issue
         return { data: result.data[0], error: null };
       } catch (err: any) {
-        console.error('Error finding first record:', err);
         return { data: null, error: err };
       }
     }, [findMany]);
@@ -1957,7 +1949,6 @@ export function createSuparismaHook<
           return create(params.create);
         }
       } catch (err: any) {
-        console.error('Error upserting record:', err);
         return { data: null, error: err };
       }
     }, [findUnique, update, create]);
@@ -1989,7 +1980,6 @@ export function createSuparismaHook<
         
         return count || 0;
       } catch (err) {
-        console.error('Error counting records:', err);
         return 0;
       }
     }, [where]);

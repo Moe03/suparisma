@@ -178,7 +178,6 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
       }
     } catch (error) {
       // If there's any error with zod imports, just use a fallback
-      console.warn('Warning: Skipping custom zod imports due to configuration issues');
       customImports = '';
     }
   }
