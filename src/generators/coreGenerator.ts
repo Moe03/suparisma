@@ -86,9 +86,14 @@ export type FilterOperators<T> = {
   isEmpty?: T extends Array<any> ? boolean : never;
 };
 
-// Type for a single field in an advanced where filter
+// Type for a single field in an advanced where filter with OR/AND support
 export type AdvancedWhereInput<T> = {
   [K in keyof T]?: T[K] | FilterOperators<T[K]>;
+} & {
+  /** Match ANY of the provided conditions */
+  OR?: AdvancedWhereInput<T>[];
+  /** Match ALL of the provided conditions */
+  AND?: AdvancedWhereInput<T>[];
 };
 
 /**
@@ -205,14 +210,26 @@ function compareValues(a: any, b: any, direction: 'asc' | 'desc'): number {
 
 /**
  * Convert a type-safe where filter to Supabase filter string
+ * Note: Complex OR/AND operations may not be fully supported in realtime filters
+ * and will fall back to client-side filtering
  */
 export function buildFilterString<T>(where?: T): string | undefined {
   if (!where) return undefined;
   
+  const whereObj = where as any;
+  
+  // Check for OR/AND operations - these are complex for realtime filters
+  if (whereObj.OR || whereObj.AND) {
+    console.log('⚠️ Complex OR/AND filters detected - realtime will use client-side filtering');
+    // For complex logical operations, we'll rely on client-side filtering
+    // Return undefined to indicate no database-level filter should be applied
+    return undefined;
+  }
+  
   const filters: string[] = [];
   
-  for (const [key, value] of Object.entries(where)) {
-    if (value !== undefined) {
+  for (const [key, value] of Object.entries(whereObj)) {
+    if (value !== undefined && key !== 'OR' && key !== 'AND') {
       if (typeof value === 'object' && value !== null) {
         // Handle advanced operators
         const advancedOps = value as unknown as FilterOperators<any>;
@@ -296,19 +313,18 @@ export function buildFilterString<T>(where?: T): string | undefined {
 }
 
 /**
- * Apply filter to the query builder
+ * Apply a single condition group to the query builder
  */
-export function applyFilter<T>(
+function applyConditionGroup<T>(
   query: SupabaseQueryBuilder, 
-  where: T
+  conditions: T
 ): SupabaseQueryBuilder {
-  if (!where) return query;
+  if (!conditions) return query;
 
   let filteredQuery = query;
   
-  // Apply each filter condition
-  for (const [key, value] of Object.entries(where)) {
-    if (value !== undefined) {
+  for (const [key, value] of Object.entries(conditions)) {
+    if (value !== undefined && key !== 'OR' && key !== 'AND') {
       if (typeof value === 'object' && value !== null) {
         // Handle advanced operators
         const advancedOps = value as unknown as FilterOperators<any>;
@@ -402,6 +418,209 @@ export function applyFilter<T>(
   }
   
   return filteredQuery;
+}
+
+/**
+ * Apply filter to the query builder with OR/AND support
+ */
+export function applyFilter<T>(
+  query: SupabaseQueryBuilder, 
+  where: T
+): SupabaseQueryBuilder {
+  if (!where) return query;
+
+  const whereObj = where as any;
+  let filteredQuery = query;
+  
+  // Handle regular conditions first (these are implicitly AND-ed)
+  filteredQuery = applyConditionGroup(filteredQuery, whereObj);
+  
+  // Handle OR conditions
+  if (whereObj.OR && Array.isArray(whereObj.OR) && whereObj.OR.length > 0) {
+    // @ts-ignore: Supabase typing issue
+    filteredQuery = filteredQuery.or(
+      whereObj.OR.map((orCondition: any, index: number) => {
+        // Convert each OR condition to a filter string
+        const orFilters: string[] = [];
+        
+        for (const [key, value] of Object.entries(orCondition)) {
+          if (value !== undefined && key !== 'OR' && key !== 'AND') {
+            if (typeof value === 'object' && value !== null) {
+              const advancedOps = value as unknown as FilterOperators<any>;
+              
+              if ('equals' in advancedOps && advancedOps.equals !== undefined) {
+                orFilters.push(\`\${key}.eq.\${advancedOps.equals}\`);
+              } else if ('not' in advancedOps && advancedOps.not !== undefined) {
+                orFilters.push(\`\${key}.neq.\${advancedOps.not}\`);
+              } else if ('gt' in advancedOps && advancedOps.gt !== undefined) {
+                orFilters.push(\`\${key}.gt.\${advancedOps.gt}\`);
+              } else if ('gte' in advancedOps && advancedOps.gte !== undefined) {
+                orFilters.push(\`\${key}.gte.\${advancedOps.gte}\`);
+              } else if ('lt' in advancedOps && advancedOps.lt !== undefined) {
+                orFilters.push(\`\${key}.lt.\${advancedOps.lt}\`);
+              } else if ('lte' in advancedOps && advancedOps.lte !== undefined) {
+                orFilters.push(\`\${key}.lte.\${advancedOps.lte}\`);
+              } else if ('in' in advancedOps && advancedOps.in?.length) {
+                orFilters.push(\`\${key}.in.(\${advancedOps.in.join(',')})\`);
+              } else if ('contains' in advancedOps && advancedOps.contains !== undefined) {
+                orFilters.push(\`\${key}.ilike.*\${advancedOps.contains}*\`);
+              } else if ('startsWith' in advancedOps && advancedOps.startsWith !== undefined) {
+                orFilters.push(\`\${key}.ilike.\${advancedOps.startsWith}%\`);
+              } else if ('endsWith' in advancedOps && advancedOps.endsWith !== undefined) {
+                orFilters.push(\`\${key}.ilike.%\${advancedOps.endsWith}\`);
+              } else if ('has' in advancedOps && advancedOps.has !== undefined) {
+                orFilters.push(\`\${key}.ov.\${JSON.stringify(advancedOps.has)}\`);
+              } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+                orFilters.push(\`\${key}.cs.\${JSON.stringify(advancedOps.hasEvery)}\`);
+              } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+                orFilters.push(\`\${key}.ov.\${JSON.stringify(advancedOps.hasSome)}\`);
+              } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
+                if (advancedOps.isEmpty) {
+                  orFilters.push(\`\${key}.eq.{}\`);
+                } else {
+                  orFilters.push(\`\${key}.neq.{}\`);
+                }
+              }
+            } else {
+              // Simple equality
+              orFilters.push(\`\${key}.eq.\${value}\`);
+            }
+          }
+        }
+        
+        return orFilters.join(',');
+      }).join(',')
+    );
+  }
+  
+  // Handle AND conditions (these are applied in addition to regular conditions)
+  if (whereObj.AND && Array.isArray(whereObj.AND) && whereObj.AND.length > 0) {
+    for (const andCondition of whereObj.AND) {
+      filteredQuery = applyConditionGroup(filteredQuery, andCondition);
+    }
+  }
+  
+  return filteredQuery;
+}
+
+/**
+ * Evaluate if a record matches filter criteria (including OR/AND logic)
+ */
+function matchesFilter<T>(record: any, filter: T): boolean {
+  if (!filter) return true;
+  
+  const filterObj = filter as any;
+  
+  // Separate regular conditions from OR/AND
+  const hasOr = filterObj.OR && Array.isArray(filterObj.OR) && filterObj.OR.length > 0;
+  const hasAnd = filterObj.AND && Array.isArray(filterObj.AND) && filterObj.AND.length > 0;
+  
+  // Check regular field conditions (these are implicitly AND-ed)
+  const regularConditions: any = {};
+  for (const [key, value] of Object.entries(filterObj)) {
+    if (value !== undefined && key !== 'OR' && key !== 'AND') {
+      regularConditions[key] = value;
+    }
+  }
+  
+  // Helper function to check individual field conditions
+  const checkFieldConditions = (conditions: any): boolean => {
+    for (const [key, value] of Object.entries(conditions)) {
+      if (value !== undefined) {
+        const recordValue = record[key];
+        
+        if (typeof value === 'object' && value !== null) {
+          // Handle advanced operators
+          const advancedOps = value as unknown as FilterOperators<any>;
+          
+          if ('equals' in advancedOps && advancedOps.equals !== undefined) {
+            if (recordValue !== advancedOps.equals) return false;
+          }
+          
+          if ('not' in advancedOps && advancedOps.not !== undefined) {
+            if (recordValue === advancedOps.not) return false;
+          }
+          
+          if ('gt' in advancedOps && advancedOps.gt !== undefined) {
+            if (!(recordValue > advancedOps.gt)) return false;
+          }
+          
+          if ('gte' in advancedOps && advancedOps.gte !== undefined) {
+            if (!(recordValue >= advancedOps.gte)) return false;
+          }
+          
+          if ('lt' in advancedOps && advancedOps.lt !== undefined) {
+            if (!(recordValue < advancedOps.lt)) return false;
+          }
+          
+          if ('lte' in advancedOps && advancedOps.lte !== undefined) {
+            if (!(recordValue <= advancedOps.lte)) return false;
+          }
+          
+          if ('in' in advancedOps && advancedOps.in?.length) {
+            if (!advancedOps.in.includes(recordValue)) return false;
+          }
+          
+          if ('contains' in advancedOps && advancedOps.contains !== undefined) {
+            if (!recordValue || !String(recordValue).toLowerCase().includes(String(advancedOps.contains).toLowerCase())) return false;
+          }
+          
+          if ('startsWith' in advancedOps && advancedOps.startsWith !== undefined) {
+            if (!recordValue || !String(recordValue).toLowerCase().startsWith(String(advancedOps.startsWith).toLowerCase())) return false;
+          }
+          
+          if ('endsWith' in advancedOps && advancedOps.endsWith !== undefined) {
+            if (!recordValue || !String(recordValue).toLowerCase().endsWith(String(advancedOps.endsWith).toLowerCase())) return false;
+          }
+          
+          // Array-specific operators
+          if ('has' in advancedOps && advancedOps.has !== undefined) {
+            if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) return false;
+          }
+          
+          if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
+            if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) return false;
+          }
+          
+          if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
+            if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) return false;
+          }
+          
+          if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
+            const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
+            if (isEmpty !== advancedOps.isEmpty) return false;
+          }
+        } else {
+          // Simple equality
+          if (recordValue !== value) return false;
+        }
+      }
+    }
+    return true;
+  };
+  
+  // All conditions that must be true
+  const conditions: boolean[] = [];
+  
+  // Regular field conditions (implicitly AND-ed)
+  if (Object.keys(regularConditions).length > 0) {
+    conditions.push(checkFieldConditions(regularConditions));
+  }
+  
+  // AND conditions (all must be true)
+  if (hasAnd) {
+    const andResult = filterObj.AND.every((andCondition: any) => matchesFilter(record, andCondition));
+    conditions.push(andResult);
+  }
+  
+  // OR conditions (at least one must be true)
+  if (hasOr) {
+    const orResult = filterObj.OR.some((orCondition: any) => matchesFilter(record, orCondition));
+    conditions.push(orResult);
+  }
+  
+  // All conditions must be true
+  return conditions.every(condition => condition);
 }
 
 /**
@@ -895,7 +1114,7 @@ export function createSuparismaHook<
       }
     }, []);
 
-    // Set up realtime subscription for the list
+        // Set up realtime subscription for the list - ONCE and listen to ALL events
     useEffect(() => {
       if (!realtime) return;
       
@@ -907,44 +1126,14 @@ export function createSuparismaHook<
       
       const channelId = channelName || \`changes_to_\${tableName}_\${Math.random().toString(36).substring(2, 15)}\`;
       
-      // Check if we have complex array filters that should be handled client-side only
-      let hasComplexArrayFilters = false;
-      if (where) {
-        for (const [key, value] of Object.entries(where)) {
-          if (typeof value === 'object' && value !== null) {
-            const advancedOps = value as any;
-            // Check for complex array operators
-            if ('has' in advancedOps || 'hasEvery' in advancedOps || 'hasSome' in advancedOps || 'isEmpty' in advancedOps) {
-              hasComplexArrayFilters = true;
-              break;
-            }
-          }
-        }
-      }
-      
-      // For complex array filters, use no database filter and rely on client-side filtering
-      // For simple filters, use database-level filtering
+      // ALWAYS listen to ALL events and filter client-side for maximum reliability
       let subscriptionConfig: any = {
         event: '*',
         schema: 'public',
         table: tableName,
       };
       
-      if (hasComplexArrayFilters) {
-        // Don't include filter at all for complex array operations
-        console.log(\`Setting up subscription for \${tableName} with NO FILTER (complex array filters detected) - will receive ALL events\`);
-      } else if (where) {
-        // Include filter for simple operations
-        const filter = buildFilterString(where);
-        if (filter) {
-          subscriptionConfig.filter = filter;
-        }
-        console.log(\`Setting up subscription for \${tableName} with database filter: \${filter}\`);
-      } else if (realtimeFilter) {
-        // Use custom realtime filter if provided
-        subscriptionConfig.filter = realtimeFilter;
-        console.log(\`Setting up subscription for \${tableName} with custom filter: \${realtimeFilter}\`);
-      }
+      console.log(\`Setting up subscription for \${tableName} - listening to ALL events (client-side filtering)\`);
       
       const channel = supabase
         .channel(channelId)
@@ -974,56 +1163,10 @@ export function createSuparismaHook<
                   console.log(\`Processing INSERT for \${tableName}\`, { newRecord });
                   
                   // ALWAYS check if this record matches our filter client-side
-                  // This is especially important for complex array filters
-                  if (currentWhere) { // Use ref value
-                    let matchesFilter = true;
-                    
-                    // Check each filter condition client-side for complex filters
-                    for (const [key, value] of Object.entries(currentWhere)) {
-                      if (typeof value === 'object' && value !== null) {
-                        // Handle complex array filters client-side
-                        const advancedOps = value as any;
-                        const recordValue = newRecord[key as keyof typeof newRecord] as any;
-                        
-                        // Array-specific operators validation
-                        if ('has' in advancedOps && advancedOps.has !== undefined) {
-                          // Array contains ANY of the specified items
-                          if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
-                          // Array contains ALL of the specified items
-                          if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
-                          // Array contains ANY of the specified items
-                          if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
-                          // Array is empty or not empty
-                          const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
-                          if (isEmpty !== advancedOps.isEmpty) {
-                            matchesFilter = false;
-                            break;
-                          }
-                        }
-                        // Add other complex filter validations as needed
-                      } else if (newRecord[key as keyof typeof newRecord] !== value) {
-                        matchesFilter = false;
-                        console.log(\`Filter mismatch on \${key}\`, { expected: value, actual: newRecord[key as keyof typeof newRecord] });
-                        break;
-                      }
-                    }
-                    
-                    if (!matchesFilter) {
+                  // This is especially important for complex OR/AND/array filters
+                  if (currentWhere && !matchesFilter(newRecord, currentWhere)) {
                       console.log('New record does not match filter criteria, skipping');
                       return prev;
-                    }
                   }
                   
                   // Check if record already exists (avoid duplicates)
@@ -1103,56 +1246,12 @@ export function createSuparismaHook<
                 const updatedRecord = payload.new as TWithRelations;
                 
                 // Check if the updated record still matches our current filter
-                if (currentWhere) {
-                  let matchesFilter = true;
-                  
-                  for (const [key, value] of Object.entries(currentWhere)) {
-                    if (typeof value === 'object' && value !== null) {
-                      // Handle complex array filters client-side
-                      const advancedOps = value as any;
-                      const recordValue = updatedRecord[key as keyof typeof updatedRecord] as any;
-                      
-                      // Array-specific operators validation
-                      if ('has' in advancedOps && advancedOps.has !== undefined) {
-                        // Array contains ANY of the specified items
-                        if (!Array.isArray(recordValue) || !advancedOps.has.some((item: any) => recordValue.includes(item))) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      } else if ('hasEvery' in advancedOps && advancedOps.hasEvery !== undefined) {
-                        // Array contains ALL of the specified items
-                        if (!Array.isArray(recordValue) || !advancedOps.hasEvery.every((item: any) => recordValue.includes(item))) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      } else if ('hasSome' in advancedOps && advancedOps.hasSome !== undefined) {
-                        // Array contains ANY of the specified items
-                        if (!Array.isArray(recordValue) || !advancedOps.hasSome.some((item: any) => recordValue.includes(item))) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      } else if ('isEmpty' in advancedOps && advancedOps.isEmpty !== undefined) {
-                        // Array is empty or not empty
-                        const isEmpty = !Array.isArray(recordValue) || recordValue.length === 0;
-                        if (isEmpty !== advancedOps.isEmpty) {
-                          matchesFilter = false;
-                          break;
-                        }
-                      }
-                    } else if (updatedRecord[key as keyof typeof updatedRecord] !== value) {
-                      matchesFilter = false;
-                      break;
-                    }
-                  }
-                  
-                  // If the updated record doesn't match the filter, remove it from the list
-                  if (!matchesFilter) {
+                if (currentWhere && !matchesFilter(updatedRecord, currentWhere)) {
                     console.log('Updated record no longer matches filter, removing from list');
                     return prev.filter((item) =>
                       // @ts-ignore: Supabase typing issue
                       !('id' in item && 'id' in updatedRecord && item.id === updatedRecord.id)
                     );
-                  }
                 }
                 
                 const newData = prev.map((item) =>
@@ -1319,7 +1418,7 @@ export function createSuparismaHook<
           searchTimeoutRef.current = null;
         }
       };
-    }, [realtime, channelName, tableName, where, initialLoadRef]); // Added 'where' back so subscription updates when filter changes
+    }, [realtime, channelName, tableName]); // NEVER include 'where' - subscription should persist
 
     // Create a memoized options object to prevent unnecessary re-renders
     const optionsRef = useRef({ where, orderBy, limit, offset });
@@ -1348,7 +1447,7 @@ export function createSuparismaHook<
       return false;
     }, [where, orderBy, limit, offset]);
 
-    // Load initial data based on options
+    // Load initial data and refetch when options change (BUT NEVER TOUCH SUBSCRIPTION)
     useEffect(() => {
       // Skip if search is active
       if (isSearchingRef.current) return;
@@ -1357,7 +1456,7 @@ export function createSuparismaHook<
       if (initialLoadRef.current) {
         // Only reload if options have changed significantly
         if (optionsChanged()) {
-          console.log(\`Options changed for \${tableName}, reloading data\`);
+          console.log(\`Options changed for \${tableName}, refetching data (subscription stays alive)\`);
           findMany({
             where,
             orderBy,

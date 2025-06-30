@@ -18,6 +18,11 @@ export default function Home() {
   const [arrayFilterExample, setArrayFilterExample] = useState("1");
   const [arrayOperator, setArrayOperator] = useState<'has' | 'hasEvery' | 'hasSome' | 'isEmpty'>('hasEvery');
   
+  // Add state for OR/AND testing
+  const [useOrLogic, setUseOrLogic] = useState(false);
+  const [nameFilter, setNameFilter] = useState("");
+  const [numberFilter, setNumberFilter] = useState("");
+  
   // Array Filtering Examples - You can now use powerful array operators:
   /*
     // Array contains ANY of the specified items
@@ -50,6 +55,30 @@ export default function Home() {
   
   // Create a stable where object that only changes when filters actually change
   const whereFilter = useMemo(() => {
+    // OR/AND Logic Example
+    if (useOrLogic && (nameFilter || numberFilter)) {
+      return {
+        OR: [
+          ...(nameFilter ? [{ name: { contains: nameFilter } }] : []),
+          ...(numberFilter ? [{ someNumber: { gte: parseInt(numberFilter) || 0 } }] : []),
+          { someEnum: "TWO" } // Always include items with enum TWO in OR
+        ]
+      };
+    }
+    
+    // Complex AND + OR example
+    if (useOrLogic && enumFilter) {
+      return {
+        // Must match the enum filter (AND)
+        someEnum: enumFilter,
+        // AND also match any of these OR conditions
+        OR: [
+          { stringArray: { has: ["1"] } },
+          { someNumber: { gt: 50 } }
+        ]
+      };
+    }
+    
     if (arrayFilterExample) {
       return {
         // Dynamic array filtering based on selected operator
@@ -67,7 +96,7 @@ export default function Home() {
       };
     }
     return undefined;
-  }, [arrayFilterExample, arrayOperator, enumFilter]);
+  }, [arrayFilterExample, arrayOperator, enumFilter, useOrLogic, nameFilter, numberFilter]);
   
   const { 
     data: things,
@@ -83,7 +112,10 @@ export default function Home() {
     realtime: true,
     limit: itemsPerPage,
     offset: page * itemsPerPage,
-    where: whereFilter,
+    where: {
+      someEnum: "ONE",
+      name: "New Thing"
+    },
     orderBy: {
       [sortField]: sortDirection
     },
@@ -130,6 +162,74 @@ export default function Home() {
         >
           Create New Thing {isLoadingThing ? "..." : ""}
         </button>
+      </div>
+
+      {/* OR/AND Logic Controls */}
+      <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+        <h3 className="text-lg font-semibold mb-2">🔥 NEW: OR/AND Logic Testing</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={useOrLogic}
+                onChange={(e) => {
+                  setUseOrLogic(e.target.checked);
+                  setEnumFilter(""); // Clear other filters
+                  setArrayFilterExample("");
+                  setPage(0);
+                }}
+                className="w-4 h-4"
+              />
+              <span className="text-sm font-medium">Enable OR/AND Logic</span>
+            </label>
+          </div>
+          
+          {useOrLogic && (
+            <>
+              <div>
+                <label htmlFor="nameFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                  Name Contains (OR)
+                </label>
+                <input
+                  id="nameFilter"
+                  type="text"
+                  value={nameFilter}
+                  onChange={(e) => {
+                    setNameFilter(e.target.value);
+                    setPage(0);
+                  }}
+                  placeholder="Enter name to search"
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="numberFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                  Number &gt;= (OR)
+                </label>
+                <input
+                  id="numberFilter"
+                  type="number"
+                  value={numberFilter}
+                  onChange={(e) => {
+                    setNumberFilter(e.target.value);
+                    setPage(0);
+                  }}
+                  placeholder="Min number"
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                />
+              </div>
+              
+              <div className="text-sm text-gray-600">
+                <p><strong>Query:</strong> OR Logic</p>
+                <p>• Name contains text OR</p>
+                <p>• Number &gt;= value OR</p>
+                <p>• Enum = "TWO"</p>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Filter and Sort Controls */}

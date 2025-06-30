@@ -245,6 +245,7 @@ export type ${modelName}UpdateInput = Partial<${modelName}CreateInput>;
 /**
  * Filter type for querying ${modelName} records.
  * You can filter by any field in the model using equality or advanced filter operators.
+ * Supports OR and AND logical operations for complex queries.
  * 
  * @example
  * // Basic filtering
@@ -272,6 +273,40 @@ ${withRelationsProps
     return ` *     ${field}: { contains: "partial" }`;
   })
   .join(',\n')}
+ *   }
+ * });
+ * 
+ * @example
+ * // OR conditions - match ANY condition
+ * ${modelName.toLowerCase()}.findMany({
+ *   where: {
+ *     OR: [
+ *       { ${withRelationsProps.slice(0, 1).map(p => p.trim().split(':')[0].trim())[0] || 'field1'}: "value1" },
+ *       { ${withRelationsProps.slice(1, 2).map(p => p.trim().split(':')[0].trim())[0] || 'field2'}: { contains: "value2" } }
+ *     ]
+ *   }
+ * });
+ * 
+ * @example
+ * // AND conditions - match ALL conditions
+ * ${modelName.toLowerCase()}.findMany({
+ *   where: {
+ *     AND: [
+ *       { ${withRelationsProps.slice(0, 1).map(p => p.trim().split(':')[0].trim())[0] || 'field1'}: "value1" },
+ *       { ${withRelationsProps.slice(1, 2).map(p => p.trim().split(':')[0].trim())[0] || 'field2'}: { gt: 100 } }
+ *     ]
+ *   }
+ * });
+ * 
+ * @example
+ * // Complex nested logic
+ * ${modelName.toLowerCase()}.findMany({
+ *   where: {
+ *     active: true, // Regular condition (implicit AND)
+ *     OR: [
+ *       { role: "admin" },
+ *       { role: "moderator" }
+ *     ]
  *   }
  * });
  * 
@@ -316,6 +351,11 @@ ${model.fields
     }).filter(Boolean)
   )
   .join('\n')}
+} & {
+  /** Match ANY of the provided conditions */
+  OR?: ${modelName}WhereInput[];
+  /** Match ALL of the provided conditions */
+  AND?: ${modelName}WhereInput[];
 };
 
 /**
