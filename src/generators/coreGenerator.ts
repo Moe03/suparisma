@@ -1387,6 +1387,8 @@ export function createSuparismaHook<
     /**
      * Create a new record with the provided data.
      * Default values from the schema will be applied if not provided.
+     * NOTE: This operation does NOT immediately update the local state.
+     * The state will be updated when the realtime INSERT event is received.
      * 
      * @param data - The data to create the record with
      * @returns A promise with the created record or error
@@ -1459,8 +1461,8 @@ export function createSuparismaHook<
         
         if (error) throw error;
         
-        // Update the total count after a successful creation
-        setTimeout(() => fetchTotalCount(), 0);
+        // DO NOT UPDATE LOCAL STATE HERE - Let realtime INSERT event handle it
+        console.log('✅ Created ' + tableName + ' record, waiting for realtime INSERT event to update state');
         
         // Return created record
         return { data: result?.[0] as TWithRelations, error: null };
@@ -1471,10 +1473,12 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, [fetchTotalCount]);
+    }, []);
 
     /**
      * Update an existing record identified by a unique identifier.
+     * NOTE: This operation does NOT immediately update the local state.
+     * The state will be updated when the realtime UPDATE event is received.
      * 
      * @param params - Object containing the identifier and update data
      * @returns A promise with the updated record or error
@@ -1536,10 +1540,8 @@ export function createSuparismaHook<
         
         if (error) throw error;
         
-        // Update the total count after a successful update
-        // This is for consistency with other operations, and because
-        // updates can sometimes affect filtering based on updated values
-        setTimeout(() => fetchTotalCount(), 0);
+        // DO NOT UPDATE LOCAL STATE HERE - Let realtime UPDATE event handle it
+        console.log('✅ Updated ' + tableName + ' record, waiting for realtime UPDATE event to update state');
         
         // Return updated record
         return { data: data?.[0] as TWithRelations, error: null };
@@ -1550,10 +1552,12 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, [fetchTotalCount]);
+    }, []);
 
     /**
      * Delete a record by its unique identifier.
+     * NOTE: This operation does NOT immediately update the local state.
+     * The state will be updated when the realtime DELETE event is received.
      * 
      * @param where - The unique identifier to delete the record by
      * @returns A promise with the deleted record or error
@@ -1603,8 +1607,8 @@ export function createSuparismaHook<
         
         if (error) throw error;
         
-        // Update the total count after a successful deletion
-        setTimeout(() => fetchTotalCount(), 0);
+        // DO NOT UPDATE LOCAL STATE HERE - Let realtime DELETE event handle it
+        console.log('✅ Deleted ' + tableName + ' record, waiting for realtime DELETE event to update state');
         
         // Return the deleted record
         return { data: recordToDelete as TWithRelations, error: null };
@@ -1615,10 +1619,12 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, [fetchTotalCount]);
+    }, []);
 
     /**
      * Delete multiple records matching the filter criteria.
+     * NOTE: This operation does NOT immediately update the local state.
+     * The state will be updated when realtime DELETE events are received for each record.
      * 
      * @param params - Query parameters for filtering records to delete
      * @returns A promise with the count of deleted records or error
@@ -1628,7 +1634,7 @@ export function createSuparismaHook<
      * const result = await users.deleteMany({
      *   where: { active: false }
      * });
-     * console.log(\`Deleted \${result.count} inactive users\`);
+     * console.log('Deleted ' + result.count + ' inactive users');
      * 
      * @example
      * // Delete all records (use with caution!)
@@ -1672,8 +1678,8 @@ export function createSuparismaHook<
         
         if (deleteError) throw deleteError;
         
-        // Update the total count after a successful bulk deletion
-        setTimeout(() => fetchTotalCount(), 0);
+        // DO NOT UPDATE LOCAL STATE HERE - Let realtime DELETE events handle it
+        console.log('✅ Deleted ' + recordsToDelete.length + ' ' + tableName + ' records, waiting for realtime DELETE events to update state');
         
         // Return the count of deleted records
         return { count: recordsToDelete.length, error: null };
@@ -1684,7 +1690,7 @@ export function createSuparismaHook<
       } finally {
         setLoading(false);
       }
-    }, [fetchTotalCount]);
+    }, []);
 
     /**
      * Find the first record matching the filter criteria.
