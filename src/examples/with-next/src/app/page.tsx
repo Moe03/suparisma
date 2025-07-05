@@ -23,6 +23,11 @@ export default function Home() {
   const [nameFilter, setNameFilter] = useState("");
   const [numberFilter, setNumberFilter] = useState("");
   
+  // Add state for date testing
+  const [useDateFilter, setUseDateFilter] = useState(false);
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
+  
   // Array Filtering Examples - You can now use powerful array operators:
   /*
     // Array contains ANY of the specified items
@@ -55,6 +60,31 @@ export default function Home() {
   
   // Create a stable where object that only changes when filters actually change
   const whereFilter = useMemo(() => {
+    // Date Range Filtering Example 🔥 NEW: Proper Date type support!
+    if (useDateFilter && (dateFromFilter || dateToFilter)) {
+      const filter: any = {};
+      
+      if (dateFromFilter && dateToFilter) {
+        // Date range: between two dates
+        filter.createdAt = {
+          gte: new Date(dateFromFilter), // ✅ Now supports Date objects!
+          lte: new Date(dateToFilter)
+        };
+      } else if (dateFromFilter) {
+        // From date only
+        filter.createdAt = {
+          gte: new Date(dateFromFilter)
+        };
+      } else if (dateToFilter) {
+        // To date only
+        filter.createdAt = {
+          lte: new Date(dateToFilter)
+        };
+      }
+      
+      return filter;
+    }
+    
     // OR/AND Logic Example
     if (useOrLogic && (nameFilter || numberFilter)) {
       return {
@@ -96,7 +126,7 @@ export default function Home() {
       };
     }
     return undefined;
-  }, [arrayFilterExample, arrayOperator, enumFilter, useOrLogic, nameFilter, numberFilter]);
+  }, [arrayFilterExample, arrayOperator, enumFilter, useOrLogic, nameFilter, numberFilter, useDateFilter, dateFromFilter, dateToFilter]);
   
   const { 
     data: things,
@@ -112,10 +142,7 @@ export default function Home() {
     realtime: true,
     limit: itemsPerPage,
     offset: page * itemsPerPage,
-    where: {
-      someEnum: "ONE",
-      name: "New Thing"
-    },
+    where: whereFilter,
     orderBy: {
       [sortField]: sortDirection
     },
@@ -162,6 +189,73 @@ export default function Home() {
         >
           Create New Thing {isLoadingThing ? "..." : ""}
         </button>
+      </div>
+
+      {/* Date Range Controls */}
+      <div className="mb-4 p-4 bg-green-50 rounded-lg">
+        <h3 className="text-lg font-semibold mb-2">🔥 FIXED: Date Range Filtering</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={useDateFilter}
+                onChange={(e) => {
+                  setUseDateFilter(e.target.checked);
+                  setUseOrLogic(false); // Clear other filters
+                  setEnumFilter("");
+                  setArrayFilterExample("");
+                  setPage(0);
+                }}
+                className="w-4 h-4"
+              />
+              <span className="text-sm font-medium">Enable Date Filtering</span>
+            </label>
+          </div>
+          
+          {useDateFilter && (
+            <>
+              <div>
+                <label htmlFor="dateFromFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                  From Date
+                </label>
+                <input
+                  id="dateFromFilter"
+                  type="datetime-local"
+                  value={dateFromFilter}
+                  onChange={(e) => {
+                    setDateFromFilter(e.target.value);
+                    setPage(0);
+                  }}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="dateToFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                  To Date
+                </label>
+                <input
+                  id="dateToFilter"
+                  type="datetime-local"
+                  value={dateToFilter}
+                  onChange={(e) => {
+                    setDateToFilter(e.target.value);
+                    setPage(0);
+                  }}
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                />
+              </div>
+              
+              <div className="text-sm text-gray-600">
+                <p><strong>Fixed Issues:</strong></p>
+                <p>✅ Date types are now proper Date objects</p>
+                <p>✅ No more TypeScript errors with new Date()</p>
+                <p>✅ Date filtering works correctly</p>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* OR/AND Logic Controls */}
@@ -347,6 +441,7 @@ export default function Home() {
               <th className="py-2 px-4 border-b text-left">Some Number</th>
               <th className="py-2 px-4 border-b text-left">String Array</th>
               <th className="py-2 px-4 border-b text-left">Enum</th>
+              <th className="py-2 px-4 border-b text-left">Created At</th>
               <th className="py-2 px-4 border-b text-left">ID</th>
               <th className="py-2 px-4 border-b text-left">Actions</th>
             </tr>
@@ -362,6 +457,11 @@ export default function Home() {
                   </span>
                 </td>
                 <td className="py-2 px-4 border-b">{thing.someEnum}</td>
+                <td className="py-2 px-4 border-b">
+                  <span className="text-xs">
+                    {new Date(thing.createdAt).toLocaleString()}
+                  </span>
+                </td>
                 <td className="py-2 px-4 border-b">{thing.id}</td>
                 <td className="py-2 px-4 border-b">
                   <button 
@@ -381,7 +481,7 @@ export default function Home() {
             ))}
             {(things?.length === 0 && !isLoadingThing) && (
               <tr>
-                <td colSpan={6} className="py-4 px-4 text-center text-gray-500">
+                <td colSpan={7} className="py-4 px-4 text-center text-gray-500">
                   No things found.
                 </td>
               </tr>

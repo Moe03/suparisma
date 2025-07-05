@@ -74,7 +74,7 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
         baseType = 'boolean';
         break;
       case 'DateTime':
-        baseType = 'string'; // ISO date string
+        baseType = 'Date'; // Proper Date type for DateTime fields
         break;
       case 'Json':
         baseType = 'any'; // Or a more specific structured type if available

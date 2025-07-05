@@ -243,19 +243,23 @@ export function buildFilterString<T>(where?: T): string | undefined {
         }
         
         if ('gt' in advancedOps && advancedOps.gt !== undefined) {
-          filters.push(\`\${key}=gt.\${advancedOps.gt}\`);
+          const value = advancedOps.gt instanceof Date ? advancedOps.gt.toISOString() : advancedOps.gt;
+          filters.push(\`\${key}=gt.\${value}\`);
         }
         
         if ('gte' in advancedOps && advancedOps.gte !== undefined) {
-          filters.push(\`\${key}=gte.\${advancedOps.gte}\`);
+          const value = advancedOps.gte instanceof Date ? advancedOps.gte.toISOString() : advancedOps.gte;
+          filters.push(\`\${key}=gte.\${value}\`);
         }
         
         if ('lt' in advancedOps && advancedOps.lt !== undefined) {
-          filters.push(\`\${key}=lt.\${advancedOps.lt}\`);
+          const value = advancedOps.lt instanceof Date ? advancedOps.lt.toISOString() : advancedOps.lt;
+          filters.push(\`\${key}=lt.\${value}\`);
         }
         
         if ('lte' in advancedOps && advancedOps.lte !== undefined) {
-          filters.push(\`\${key}=lte.\${advancedOps.lte}\`);
+          const value = advancedOps.lte instanceof Date ? advancedOps.lte.toISOString() : advancedOps.lte;
+          filters.push(\`\${key}=lte.\${value}\`);
         }
         
         if ('in' in advancedOps && advancedOps.in?.length) {
@@ -340,23 +344,31 @@ function applyConditionGroup<T>(
         }
         
         if ('gt' in advancedOps && advancedOps.gt !== undefined) {
+          // Convert Date objects to ISO strings for Supabase
+          const value = advancedOps.gt instanceof Date ? advancedOps.gt.toISOString() : advancedOps.gt;
           // @ts-ignore: Supabase typing issue
-          filteredQuery = filteredQuery.gt(key, advancedOps.gt);
+          filteredQuery = filteredQuery.gt(key, value);
         }
         
         if ('gte' in advancedOps && advancedOps.gte !== undefined) {
+          // Convert Date objects to ISO strings for Supabase
+          const value = advancedOps.gte instanceof Date ? advancedOps.gte.toISOString() : advancedOps.gte;
           // @ts-ignore: Supabase typing issue
-          filteredQuery = filteredQuery.gte(key, advancedOps.gte);
+          filteredQuery = filteredQuery.gte(key, value);
         }
         
         if ('lt' in advancedOps && advancedOps.lt !== undefined) {
+          // Convert Date objects to ISO strings for Supabase
+          const value = advancedOps.lt instanceof Date ? advancedOps.lt.toISOString() : advancedOps.lt;
           // @ts-ignore: Supabase typing issue
-          filteredQuery = filteredQuery.lt(key, advancedOps.lt);
+          filteredQuery = filteredQuery.lt(key, value);
         }
         
         if ('lte' in advancedOps && advancedOps.lte !== undefined) {
+          // Convert Date objects to ISO strings for Supabase
+          const value = advancedOps.lte instanceof Date ? advancedOps.lte.toISOString() : advancedOps.lte;
           // @ts-ignore: Supabase typing issue
-          filteredQuery = filteredQuery.lte(key, advancedOps.lte);
+          filteredQuery = filteredQuery.lte(key, value);
         }
         
         if ('in' in advancedOps && advancedOps.in?.length) {
@@ -453,13 +465,17 @@ export function applyFilter<T>(
               } else if ('not' in advancedOps && advancedOps.not !== undefined) {
                 orFilters.push(\`\${key}.neq.\${advancedOps.not}\`);
               } else if ('gt' in advancedOps && advancedOps.gt !== undefined) {
-                orFilters.push(\`\${key}.gt.\${advancedOps.gt}\`);
+                const value = advancedOps.gt instanceof Date ? advancedOps.gt.toISOString() : advancedOps.gt;
+                orFilters.push(\`\${key}.gt.\${value}\`);
               } else if ('gte' in advancedOps && advancedOps.gte !== undefined) {
-                orFilters.push(\`\${key}.gte.\${advancedOps.gte}\`);
+                const value = advancedOps.gte instanceof Date ? advancedOps.gte.toISOString() : advancedOps.gte;
+                orFilters.push(\`\${key}.gte.\${value}\`);
               } else if ('lt' in advancedOps && advancedOps.lt !== undefined) {
-                orFilters.push(\`\${key}.lt.\${advancedOps.lt}\`);
+                const value = advancedOps.lt instanceof Date ? advancedOps.lt.toISOString() : advancedOps.lt;
+                orFilters.push(\`\${key}.lt.\${value}\`);
               } else if ('lte' in advancedOps && advancedOps.lte !== undefined) {
-                orFilters.push(\`\${key}.lte.\${advancedOps.lte}\`);
+                const value = advancedOps.lte instanceof Date ? advancedOps.lte.toISOString() : advancedOps.lte;
+                orFilters.push(\`\${key}.lte.\${value}\`);
               } else if ('in' in advancedOps && advancedOps.in?.length) {
                 orFilters.push(\`\${key}.in.(\${advancedOps.in.join(',')})\`);
               } else if ('contains' in advancedOps && advancedOps.contains !== undefined) {
@@ -523,6 +539,18 @@ function matchesFilter<T>(record: any, filter: T): boolean {
     }
   }
   
+  // Helper function to convert values to comparable format for date/time comparisons
+  const getComparableValue = (value: any): any => {
+    if (value instanceof Date) {
+      return value.getTime();
+    }
+    if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) {
+      // ISO date string
+      return new Date(value).getTime();
+    }
+    return value;
+  };
+
   // Helper function to check individual field conditions
   const checkFieldConditions = (conditions: any): boolean => {
     for (const [key, value] of Object.entries(conditions)) {
@@ -542,19 +570,27 @@ function matchesFilter<T>(record: any, filter: T): boolean {
           }
           
           if ('gt' in advancedOps && advancedOps.gt !== undefined) {
-            if (!(recordValue > advancedOps.gt)) return false;
+            const recordComparable = getComparableValue(recordValue);
+            const filterComparable = getComparableValue(advancedOps.gt);
+            if (!(recordComparable > filterComparable)) return false;
           }
           
           if ('gte' in advancedOps && advancedOps.gte !== undefined) {
-            if (!(recordValue >= advancedOps.gte)) return false;
+            const recordComparable = getComparableValue(recordValue);
+            const filterComparable = getComparableValue(advancedOps.gte);
+            if (!(recordComparable >= filterComparable)) return false;
           }
           
           if ('lt' in advancedOps && advancedOps.lt !== undefined) {
-            if (!(recordValue < advancedOps.lt)) return false;
+            const recordComparable = getComparableValue(recordValue);
+            const filterComparable = getComparableValue(advancedOps.lt);
+            if (!(recordComparable < filterComparable)) return false;
           }
           
           if ('lte' in advancedOps && advancedOps.lte !== undefined) {
-            if (!(recordValue <= advancedOps.lte)) return false;
+            const recordComparable = getComparableValue(recordValue);
+            const filterComparable = getComparableValue(advancedOps.lte);
+            if (!(recordComparable <= filterComparable)) return false;
           }
           
           if ('in' in advancedOps && advancedOps.in?.length) {
@@ -1513,7 +1549,20 @@ export function createSuparismaHook<
         setLoading(true);
         setError(null);
         
-        const now = new Date().toISOString();
+        const now = new Date();
+        
+        // Helper function to convert Date objects to ISO strings for database
+        const convertDatesForDatabase = (obj: any): any => {
+          const result: any = {};
+          for (const [key, value] of Object.entries(obj)) {
+            if (value instanceof Date) {
+              result[key] = value.toISOString();
+            } else {
+              result[key] = value;
+            }
+          }
+          return result;
+        };
         
         // Apply default values from schema
         const appliedDefaults: Record<string, any> = {};
@@ -1524,7 +1573,7 @@ export function createSuparismaHook<
           if (!(field in data)) {
             // Parse the default value based on its type
             if (defaultValue.includes('now()') || defaultValue.includes('now')) {
-              appliedDefaults[field] = now;
+              appliedDefaults[field] = now.toISOString(); // Database expects ISO string
             } else if (defaultValue.includes('uuid()') || defaultValue.includes('uuid')) {
               appliedDefaults[field] = crypto.randomUUID();
             } else if (defaultValue.includes('cuid()') || defaultValue.includes('cuid')) {
@@ -1545,13 +1594,13 @@ export function createSuparismaHook<
           }
         }
         
-        const itemWithDefaults = {
+        const itemWithDefaults = convertDatesForDatabase({
           ...appliedDefaults, // Apply schema defaults first
           ...data, // Then user data (overrides defaults)
-          // Use the actual field names from Prisma
-          ...(hasCreatedAt ? { [createdAtField]: now } : {}), 
-          ...(hasUpdatedAt ? { [updatedAtField]: now } : {})
-        };
+          // Use the actual field names from Prisma - convert Date to ISO string for database
+          ...(hasCreatedAt ? { [createdAtField]: now.toISOString() } : {}), 
+          ...(hasUpdatedAt ? { [updatedAtField]: now.toISOString() } : {})
+        });
         
         const { data: result, error } = await supabase
           .from(tableName)
@@ -1619,17 +1668,30 @@ export function createSuparismaHook<
           throw new Error('A unique identifier is required');
         }
         
-        const now = new Date().toISOString();
+        const now = new Date();
+        
+        // Helper function to convert Date objects to ISO strings for database
+        const convertDatesForDatabase = (obj: any): any => {
+          const result: any = {};
+          for (const [key, value] of Object.entries(obj)) {
+            if (value instanceof Date) {
+              result[key] = value.toISOString();
+            } else {
+              result[key] = value;
+            }
+          }
+          return result;
+        };
         
         // We do not apply default values for updates
         // Default values are only for creation, not for updates,
         // as existing records already have these values set
         
-        const itemWithDefaults = {
+        const itemWithDefaults = convertDatesForDatabase({
           ...params.data,
-          // Use the actual updatedAt field name from Prisma
-          ...(hasUpdatedAt ? { [updatedAtField]: now } : {})
-        };
+          // Use the actual updatedAt field name from Prisma - convert Date to ISO string for database
+          ...(hasUpdatedAt ? { [updatedAtField]: now.toISOString() } : {})
+        });
         
         const { data, error } = await supabase
           .from(tableName)
