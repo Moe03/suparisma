@@ -213,6 +213,7 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
           [actualTableName]
         );
 
+        // Create individual field search functions
         for (const searchField of model.searchFields) {
           const matchingColumn = columns.find(
             (c: any) => c.column_name.toLowerCase() === searchField.name.toLowerCase()
@@ -228,16 +229,30 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
 
           console.log(`    ➡️ Configuring field "${actualColumnName}":`);
           try {
-            // Create search function
+            // Create search function with improved error handling and null safety
             const createFunctionQuery = `
               CREATE OR REPLACE FUNCTION "public"."${functionName}"(search_prefix text)
               RETURNS SETOF "public"."${actualTableName}" AS $$
               BEGIN
+                -- Handle empty or null search terms
+                IF search_prefix IS NULL OR trim(search_prefix) = '' THEN
+                  RETURN;
+                END IF;
+                
+                -- Return query with proper error handling
                 RETURN QUERY
                 SELECT * FROM "public"."${actualTableName}"
-                WHERE to_tsvector('english', "${actualColumnName}") @@ to_tsquery('english', search_prefix || ':*');
+                WHERE 
+                  "${actualColumnName}" IS NOT NULL 
+                  AND "${actualColumnName}" != ''
+                  AND to_tsvector('english', "${actualColumnName}") @@ to_tsquery('english', search_prefix || ':*');
+              EXCEPTION
+                WHEN others THEN
+                  -- Log error and return empty result set instead of failing
+                  RAISE NOTICE 'Search function error: %', SQLERRM;
+                  RETURN;
               END;
-              $$ LANGUAGE plpgsql STABLE;`; // Added STABLE for potential performance benefits
+              $$ LANGUAGE plpgsql STABLE;`; // Added STABLE for performance
             await pool.query(createFunctionQuery);
             console.log(`      ✅ Created/Replaced RPC function: "${functionName}"(search_prefix text)`);
 
@@ -270,6 +285,80 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
 
           } catch (err: any) {
             console.error(`      ❌ Failed to set up search for "${actualTableName}"."${actualColumnName}": ${err.message}`);
+          }
+        }
+        
+        // Create multi-field search function if there are multiple searchable fields
+        if (model.searchFields.length > 1) {
+          console.log(`    ➡️ Creating multi-field search function:`);
+          try {
+            const validSearchFields = model.searchFields.filter(field => 
+              columns.find(c => c.column_name.toLowerCase() === field.name.toLowerCase())
+            );
+            
+            if (validSearchFields.length > 1) {
+              const multiFieldFunctionName = `search_${actualTableName.toLowerCase()}_multi_field`;
+              const multiFieldIndexName = `idx_gin_search_${actualTableName.toLowerCase()}_multi_field`;
+              
+              // Get actual column names
+              const actualColumnNames = validSearchFields.map(field => {
+                const matchingColumn = columns.find(c => c.column_name.toLowerCase() === field.name.toLowerCase());
+                return matchingColumn.column_name;
+              });
+              
+              // Create multi-field search function
+              const createMultiFieldFunctionQuery = `
+                CREATE OR REPLACE FUNCTION "public"."${multiFieldFunctionName}"(search_prefix text)
+                RETURNS SETOF "public"."${actualTableName}" AS $$
+                BEGIN
+                  -- Handle empty or null search terms
+                  IF search_prefix IS NULL OR trim(search_prefix) = '' THEN
+                    RETURN;
+                  END IF;
+                  
+                  -- Return query searching across all searchable fields
+                  RETURN QUERY
+                  SELECT * FROM "public"."${actualTableName}"
+                  WHERE 
+                    to_tsvector('english', 
+                      COALESCE("${actualColumnNames.join('", \'\') || \' \' || COALESCE("')}", '')
+                    ) @@ to_tsquery('english', search_prefix || ':*');
+                EXCEPTION
+                  WHEN others THEN
+                    -- Log error and return empty result set instead of failing
+                    RAISE NOTICE 'Multi-field search function error: %', SQLERRM;
+                    RETURN;
+                END;
+                $$ LANGUAGE plpgsql STABLE;`;
+              
+              await pool.query(createMultiFieldFunctionQuery);
+              console.log(`      ✅ Created multi-field search function: "${multiFieldFunctionName}"(search_prefix text)`);
+              
+              // Create multi-field GIN index
+              const createMultiFieldIndexQuery = `
+                DO $$
+                BEGIN
+                  IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes 
+                    WHERE schemaname = 'public' 
+                    AND tablename = '${actualTableName}'
+                    AND indexname = '${multiFieldIndexName}'
+                  ) THEN
+                    CREATE INDEX "${multiFieldIndexName}" ON "public"."${actualTableName}" 
+                    USING GIN (to_tsvector('english', 
+                      COALESCE("${actualColumnNames.join('", \'\') || \' \' || COALESCE("')}", '')
+                    ));
+                    RAISE NOTICE '      ✅ Created multi-field GIN index: "${multiFieldIndexName}"';
+                  ELSE
+                    RAISE NOTICE '      ℹ️ Multi-field GIN index "${multiFieldIndexName}" already exists.';
+                  END IF;
+                END;
+                $$;`;
+              
+              await pool.query(createMultiFieldIndexQuery);
+            }
+          } catch (err: any) {
+            console.error(`      ❌ Failed to set up multi-field search for "${actualTableName}": ${err.message}`);
           }
         }
       } else {

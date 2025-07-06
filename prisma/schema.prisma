@@ -21,7 +21,9 @@ enum SomeEnum {
 
 model User {
   id        String   @id @default(uuid())
+  // @enableSearch
   name      String
+  // @enableSearch  
   email     String   @unique
   things    Thing[]  // One-to-many relation
   createdAt DateTime @default(now())
@@ -33,6 +35,8 @@ model Thing {
   id        String   @id @default(uuid())
   // @enableSearch
   name      String? 
+  // @enableSearch
+  description String?
   stringArray String[]
   someEnum  SomeEnum @default(ONE)
   someNumber Int?
