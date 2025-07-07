@@ -36,12 +36,13 @@ model Thing {
   // @enableSearch
   name      String? 
   // @enableSearch
-  description String?
+  /// Somehting here
+  description String? /// @thing
   stringArray String[]
   someEnum  SomeEnum @default(ONE)
   someNumber Int?
 
-  /// [Json]
+  // @enableSearch
   someJson Json? /// @zod.custom.use(z.array(LLMNodeSchema).nullable())
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])

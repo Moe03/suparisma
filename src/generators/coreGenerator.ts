@@ -34,6 +34,15 @@ export type SearchQuery = {
 export type SupabaseQueryBuilder = ReturnType<ReturnType<typeof supabase.from>['select']>;
 
 /**
+ * Utility function to escape regex special characters for safe RegExp usage
+ * Prevents "Invalid regular expression" errors when search terms contain special characters
+ */
+export function escapeRegexCharacters(str: string): string {
+  // Escape all special regex characters: ( ) [ ] { } + * ? ^ $ | . \\
+  return str.replace(/[()\\[\\]{}+*?^$|.\\\\]/g, '\\\\\\\\$&');
+}
+
+/**
  * Advanced filter operators for complex queries
  * @example
  * // Users older than 21
@@ -169,6 +178,14 @@ export type ModelResult<T> = Promise<{
  * if (users.search.loading) {
  *   return <div>Searching...</div>;
  * }
+ * 
+ * @example
+ * // Get current search terms for highlighting
+ * const searchTerms = users.search.getCurrentSearchTerms();
+ * 
+ * @example
+ * // Safely escape regex characters
+ * const escaped = users.search.escapeRegex("user@example.com");
  */
 export type SearchState = {
   /** Current active search queries */
@@ -187,6 +204,10 @@ export type SearchState = {
   searchMultiField: (value: string) => void;
   /** Search in a specific field (convenience method) */
   searchField: (field: string, value: string) => void;
+  /** Get current search terms for custom highlighting */
+  getCurrentSearchTerms: () => string[];
+  /** Safely escape regex special characters */
+  escapeRegex: (text: string) => string;
 };
 
 /**
@@ -926,7 +947,17 @@ export function createSuparismaHook<
         
         setSearchQueries([{ field, value }]);
         executeSearch([{ field, value }]);
-      }, [searchFields])
+      }, [searchFields]),
+      
+      // Get current search terms for custom highlighting
+      getCurrentSearchTerms: useCallback(() => {
+        return searchQueries.map(q => q.value.trim());
+      }, [searchQueries]),
+      
+      // Safely escape regex special characters
+      escapeRegex: useCallback((text: string) => {
+        return escapeRegexCharacters(text);
+      }, [])
     };
     
     // Execute search based on queries
@@ -983,13 +1014,13 @@ export function createSuparismaHook<
             console.log(\`🔍 Executing search: \${functionName}(search_prefix: "\${query.value.trim()}")\`);
             
             // Call RPC function with proper error handling
-            return supabase.rpc(functionName, { search_prefix: query.value.trim() })
-              .then(result => ({
+            return Promise.resolve(supabase.rpc(functionName, { search_prefix: query.value.trim() }))
+              .then((result: any) => ({
                 ...result,
                 queryField: query.field,
                 queryValue: query.value
               }))
-              .catch(error => ({
+              .catch((error: any) => ({
                 data: null,
                 error: error,
                 queryField: query.field,
@@ -1005,7 +1036,7 @@ export function createSuparismaHook<
           let hasErrors = false;
           
           // Process each search result
-          searchResults.forEach((result, index) => {
+          searchResults.forEach((result: any, index: number) => {
             if (result.error) {
               console.error(\`🔍 Search error for field "\${result.queryField}" with value "\${result.queryValue}":\`, result.error);
               hasErrors = true;
@@ -1045,12 +1076,12 @@ export function createSuparismaHook<
           // Apply ordering if needed (using the proper compare function)
           if (orderBy) {
             const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
-            results = [...results].sort((a, b) => {
+              results = [...results].sort((a, b) => {
               for (const orderByClause of orderByArray) {
                 for (const [field, direction] of Object.entries(orderByClause)) {
                   const aValue = a[field as keyof typeof a];
                   const bValue = b[field as keyof typeof b];
-                  
+                
                   if (aValue === bValue) continue;
                   
                   return compareValues(aValue, bValue, direction as 'asc' | 'desc');

@@ -26,6 +26,13 @@ A powerful, typesafe React hook generator for Supabase, driven by your Prisma sc
   - [Sorting Data](#sorting-data)
   - [Pagination](#pagination)
   - [Search Functionality](#search-functionality)
+    - [Enabling Search](#enabling-search)
+    - [Search Methods](#search-methods)
+    - [Basic Search Examples](#basic-search-examples)
+    - [JSON Field Search](#json-field-search)
+    - [Advanced Search Features](#advanced-search-features)
+    - [Real-World Search Examples](#real-world-search-examples)
+    - [Search Implementation Details](#search-implementation-details)
 - [Schema Annotations](#schema-annotations)
 - [Building UI Components](#building-ui-components)
   - [Table with Filtering, Sorting, and Pagination](#table-with-filtering-sorting-and-pagination)
@@ -622,18 +629,430 @@ const { data, count } = useSuparisma.thing();
 
 ### Search Functionality
 
-> ⚠️ **MAINTENANCE NOTICE**: Search functionality is currently under maintenance and may not work as expected. We're working on improvements and will update the documentation once it's fully operational.
+Suparisma provides powerful PostgreSQL full-text search capabilities with automatic RPC function generation and type-safe search methods. Search is enabled per field using annotations in your Prisma schema.
 
-For fields annotated with `// @enableSearch`, you can use full-text search:
+#### Enabling Search
+
+Add search annotations to your Prisma schema fields:
+
+```prisma
+model Post {
+  id          String   @id @default(uuid())
+  // @enableSearch - applies to the next field (inline)
+  title       String
+  // @enableSearch - applies to the next field (standalone)
+  content     String?
+  tags        String[]
+  
+  /// @enableSearch - applies to the NEXT field that comes after this comment
+  metadata    Json?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+```
+
+**Three ways to enable search:**
+
+1. **Inline comment**: `title String // @enableSearch`
+2. **Standalone comment**: Place `// @enableSearch` on a line above the field
+3. **Directive comment**: Place `/// @enableSearch` on a line, applies to the next field definition
+
+#### Search Methods
+
+Every searchable model provides comprehensive search functionality:
 
 ```tsx
-// Search things by name
-const { data: searchResults } = useSuparisma.thing({
-  search: {
-    query: "cool",
-    fields: ["name"]
+const { 
+  data: posts,
+  search: searchPosts,
+  loading,
+  error 
+} = useSuparisma.post();
+
+// The search object provides:
+// - queries: SearchQuery[]           // Current active search queries
+// - loading: boolean                 // Search loading state
+// - setQueries: (queries) => void    // Set multiple search queries
+// - addQuery: (query) => void        // Add a single search query
+// - removeQuery: (field) => void     // Remove search by field
+// - clearQueries: () => void         // Clear all searches
+// - searchMultiField: (value) => void    // Search across all searchable fields
+// - searchField: (field, value) => void // Search specific field
+// - getCurrentSearchTerms: () => string[] // Get terms for highlighting
+// - escapeRegex: (text) => string    // Safely escape special characters
+```
+
+#### Basic Search Examples
+
+```tsx
+import useSuparisma from '../generated';
+
+function PostSearch() {
+  const { data: posts, search: searchPosts } = useSuparisma.post();
+  
+  return (
+    <div>
+      {/* Search in a specific field */}
+      <input
+        placeholder="Search titles..."
+        onChange={(e) => {
+          if (e.target.value.trim()) {
+            searchPosts.searchField("title", e.target.value);
+          } else {
+            searchPosts.clearQueries();
+          }
+        }}
+      />
+      
+      {/* Search across all searchable fields */}
+      <input
+        placeholder="Search everywhere..."
+        onChange={(e) => {
+          if (e.target.value.trim()) {
+            searchPosts.searchMultiField(e.target.value);
+          } else {
+            searchPosts.clearQueries();
+          }
+        }}
+      />
+      
+      {/* Display results */}
+      {posts?.map(post => (
+        <div key={post.id}>
+          <h3>{post.title}</h3>
+          <p>{post.content}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+#### JSON Field Search
+
+Suparisma supports full-text search on JSON fields when annotated with `/// @enableSearch`:
+
+```prisma
+model Document {
+  id       String @id @default(uuid())
+  title    String // @enableSearch
+  
+  /// @enableSearch - Enable search on the next JSON field
+  metadata Json?   // Will be searchable as text
+  
+  /// @enableSearch
+  content  Json?   // Complex JSON structures are converted to searchable text
+}
+```
+
+JSON fields are automatically converted to searchable text during indexing:
+
+```tsx
+function DocumentSearch() {
+  const { data: documents, search } = useSuparisma.document();
+  
+  return (
+    <div>
+      {/* Search within JSON metadata */}
+      <input
+        placeholder="Search metadata..."
+        onChange={(e) => {
+          if (e.target.value.trim()) {
+            search.searchField("metadata", e.target.value);
+          } else {
+            search.clearQueries();
+          }
+        }}
+      />
+      
+      {/* Search across all fields including JSON */}
+      <input
+        placeholder="Search everything (including JSON)..."
+        onChange={(e) => {
+          if (e.target.value.trim()) {
+            search.searchMultiField(e.target.value);
+          } else {
+            search.clearQueries();
+          }
+        }}
+      />
+      
+      {documents?.map(doc => (
+        <div key={doc.id}>
+          <h3>{doc.title}</h3>
+          <pre>{JSON.stringify(doc.metadata, null, 2)}</pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+**JSON Search Examples:**
+```tsx
+// Search for documents with specific metadata values
+search.searchField("metadata", "author");  // Finds JSON containing "author"
+search.searchField("content", "typescript"); // Finds JSON containing "typescript"
+
+// Multi-field search includes JSON fields
+search.searchMultiField("react tutorial"); // Searches title, metadata, content
+```
+
+#### Advanced Search Features
+
+**Multi-word Search with AND Logic**
+```tsx
+// Searching "react typescript" finds posts containing BOTH words
+searchPosts.searchField("title", "react typescript");
+// Internally converts to: "react & typescript" for PostgreSQL
+```
+
+**Search Highlighting**
+```tsx
+function PostList() {
+  const { data: posts, search } = useSuparisma.post();
+  
+  // Get current search terms for highlighting
+  const searchTerms = search.getCurrentSearchTerms();
+  
+  const highlightText = (text: string, searchTerm: string) => {
+    if (!searchTerm) return text;
+    
+    // Use the built-in regex escaping
+    const escapedTerm = search.escapeRegex(searchTerm);
+    const parts = text.split(new RegExp(`(${escapedTerm})`, 'gi'));
+    
+    return parts.map((part, index) =>
+      part.toLowerCase() === searchTerm.toLowerCase() ? (
+        <mark key={index} className="bg-yellow-200">{part}</mark>
+      ) : part
+    );
+  };
+  
+  return (
+    <div>
+      {posts?.map(post => (
+        <div key={post.id}>
+          <h3>
+            {searchTerms.length > 0 
+              ? highlightText(post.title, searchTerms[0])
+              : post.title
+            }
+          </h3>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+**Multiple Search Queries**
+```tsx
+// Search multiple fields simultaneously
+search.setQueries([
+  { field: "title", value: "react" },
+  { field: "content", value: "tutorial" }
+]);
+
+// Add individual searches
+search.addQuery({ field: "title", value: "javascript" });
+search.addQuery({ field: "tags", value: "frontend" });
+
+// Remove specific search
+search.removeQuery("title");
+```
+
+**Search State Management**
+```tsx
+function SearchComponent() {
+  const { search } = useSuparisma.post();
+  
+  // Monitor search state
+  if (search.loading) {
+    return <div>Searching...</div>;
   }
-});
+  
+  // Display active searches
+  if (search.queries.length > 0) {
+    return (
+      <div>
+        <p>Active searches:</p>
+        {search.queries.map((query, index) => (
+          <span key={index} className="tag">
+            {query.field}: "{query.value}"
+            <button onClick={() => search.removeQuery(query.field)}>
+              ×
+            </button>
+          </span>
+        ))}
+        <button onClick={search.clearQueries}>Clear All</button>
+      </div>
+    );
+  }
+  
+  return <div>No active searches</div>;
+}
+```
+
+#### Real-World Search Examples
+
+**E-commerce Product Search**
+```tsx
+function ProductSearch() {
+  const { data: products, search } = useSuparisma.product();
+  const [searchType, setSearchType] = useState<'name' | 'description' | 'multi'>('multi');
+  
+  const handleSearch = (value: string) => {
+    if (!value.trim()) {
+      search.clearQueries();
+      return;
+    }
+    
+    switch (searchType) {
+      case 'name':
+        search.searchField('name', value);
+        break;
+      case 'description':
+        search.searchField('description', value);
+        break;
+      case 'multi':
+        search.searchMultiField(value);
+        break;
+    }
+  };
+  
+  return (
+    <div>
+      {/* Search type selector */}
+      <div className="search-controls">
+        <select value={searchType} onChange={(e) => setSearchType(e.target.value)}>
+          <option value="multi">Search All Fields</option>
+          <option value="name">Product Name Only</option>
+          <option value="description">Description Only</option>
+        </select>
+        
+        <input
+          placeholder={`Search ${searchType === 'multi' ? 'products' : searchType}...`}
+          onChange={(e) => handleSearch(e.target.value)}
+        />
+      </div>
+      
+      {/* Results with highlighting */}
+      <div className="results">
+        {search.loading && <div>Searching...</div>}
+        {products?.map(product => (
+          <ProductCard key={product.id} product={product} />
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+**Content Management Search**
+```tsx
+function ArticleSearch() {
+  const { data: articles, search } = useSuparisma.article();
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  
+  const performSearch = (term: string) => {
+    if (term.trim()) {
+      search.searchMultiField(term);
+      // Add to history (avoid duplicates)
+      setSearchHistory(prev => 
+        [term, ...prev.filter(t => t !== term)].slice(0, 5)
+      );
+    } else {
+      search.clearQueries();
+    }
+  };
+  
+  return (
+    <div>
+      <div className="search-box">
+        <input
+          placeholder="Search articles..."
+          onChange={(e) => performSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.currentTarget.value = '';
+              search.clearQueries();
+            }
+          }}
+        />
+        
+        {/* Search suggestions from history */}
+        {searchHistory.length > 0 && (
+          <div className="search-history">
+            <small>Recent searches:</small>
+            {searchHistory.map((term, index) => (
+              <button 
+                key={index}
+                onClick={() => performSearch(term)}
+                className="suggestion"
+              >
+                {term}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {/* Search stats */}
+      {search.queries.length > 0 && (
+        <div className="search-stats">
+          Found {articles?.length || 0} articles for "{search.getCurrentSearchTerms().join(', ')}"
+          {search.loading && <span> (searching...)</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+#### Search Implementation Details
+
+**PostgreSQL Full-Text Search**
+- Uses `to_tsvector` and `to_tsquery` for efficient full-text search
+- Automatically creates GIN indexes for searchable fields (recommended)
+- Supports partial matching with prefix search (`:*`)
+- Multi-word queries use AND logic (`&`) for better precision
+
+**Generated RPC Functions**
+Suparisma automatically generates PostgreSQL RPC functions for search:
+- `search_{model}_by_{field}_prefix` - Single field search
+- `search_{model}_multi_field` - Multi-field search
+
+**Performance Considerations**
+- Search queries are debounced (300ms) to prevent excessive API calls
+- Results are cached and updated via realtime subscriptions
+- Large datasets benefit from database-level GIN indexes:
+
+```sql
+-- Recommended indexes for better search performance
+CREATE INDEX IF NOT EXISTS idx_posts_title_gin 
+ON posts USING gin(to_tsvector('english', title));
+
+CREATE INDEX IF NOT EXISTS idx_posts_content_gin 
+ON posts USING gin(to_tsvector('english', content));
+```
+
+**Error Handling**
+```tsx
+function SearchWithErrorHandling() {
+  const { data, search, error } = useSuparisma.post();
+  
+  useEffect(() => {
+    if (error) {
+      console.error('Search error:', error);
+      // Fallback to basic filtering
+      search.clearQueries();
+    }
+  }, [error]);
+  
+  // Component implementation...
+}
 ```
 
 ## Schema Annotations
@@ -652,18 +1071,24 @@ model AuditLog {
 
 model Thing {
   id        String  @id @default(uuid())
-  name      String? // @enableSearch - Enable full-text search for this field
-  description String? // @enableSearch - Can add to multiple fields
+  name      String? // @enableSearch - Enable full-text search for this field (inline)
+  // @enableSearch - Enable search for the field above (standalone)
+  description String? 
   someNumber Int
+  
+  /// @enableSearch - Enable search for the NEXT field that comes after this comment
+  metadata Json?
 }
 ```
 
 Available annotations:
 
-| Annotation | Description | Location |
-|------------|-------------|----------|
-| `@disableRealtime` | Disables real-time updates for this model | Model (before definition) |
-| `@enableSearch` | Enables full-text search on this field | Field (after definition) |
+| Annotation | Description | Location | Example |
+|------------|-------------|----------|---------|
+| `@disableRealtime` | Disables real-time updates for this model | Model (before definition) | `// @disableRealtime`<br>`model AuditLog { ... }` |
+| `// @enableSearch` | Enables full-text search (inline) | Field (after definition) | `name String // @enableSearch` |
+| `// @enableSearch` | Enables full-text search (standalone) | Line above field | `// @enableSearch`<br>`name String` |
+| `/// @enableSearch` | Enables full-text search (directive) | Applies to next field | `/// @enableSearch`<br>`metadata Json?` |
 
 ## Building UI Components
 

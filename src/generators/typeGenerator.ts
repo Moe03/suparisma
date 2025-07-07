@@ -139,36 +139,16 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
   // Generate imports section for zod custom types
   let customImports = '';
   if (model.zodImports && model.zodImports.length > 0) {
-    // Add zod import for type inference
-    customImports = 'import { z } from \'zod\';\n';
-    
-    // Get the zod schemas file path from environment variable
-    const zodSchemasPath = process.env.ZOD_SCHEMAS_FILE_PATH || '../commonTypes';
-    
-    // Add custom imports with environment variable path
-    customImports += model.zodImports
-      .map(zodImport => {
-        // Extract the types from the original import statement
-        const typeMatch = zodImport.importStatement.match(/import\s+{\s*([^}]+)\s*}\s+from/);
-        if (typeMatch) {
-          const types = typeMatch[1].trim();
-          return `import { ${types} } from '${zodSchemasPath}'`;
-        }
-        // Fallback to original import if parsing fails
-        return zodImport.importStatement;
-      })
-      .join('\n') + '\n\n';
-      
-    // Add type definitions for imported zod schemas if needed
-    // This is a simplified approach - you might want to make this more sophisticated
+    // For projects without zod dependency, fallback to any types instead of importing zod
+    // This prevents TypeScript errors when zod is not installed
     const customTypeDefinitions = model.zodImports
       .flatMap(zodImport => zodImport.types)
       .filter((type, index, array) => array.indexOf(type) === index) // Remove duplicates
       .map(type => {
-        // If it ends with 'Schema', create a corresponding type
+        // If it ends with 'Schema', create a corresponding type using any instead of zod
         if (type.endsWith('Schema')) {
           const typeName = type.replace('Schema', '');
-          return `export type ${typeName} = z.infer<typeof ${type}>;`;
+          return `// Fallback type when zod is not available\nexport type ${typeName} = any;`;
         }
         return '';
       })

@@ -79,11 +79,11 @@ function parseZodImport(comment: string): ZodImportInfo[] {
  */
 export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
   const schema = fs.readFileSync(schemaPath, 'utf-8');
-  const modelRegex = /model\s+(\w+)\s+{([^}]*)}/gs;
+  const modelRegex = /model\s+(\w+)\s+{([^}]*)}/g;
   const models: ModelInfo[] = [];
 
   // Extract enum names from the schema
-  const enumRegex = /enum\s+(\w+)\s+{[^}]*}/gs;
+  const enumRegex = /enum\s+(\w+)\s+{[^}]*}/g;
   const enumNames: string[] = [];
   let enumMatch;
   while ((enumMatch = enumRegex.exec(schema)) !== null) {
@@ -110,9 +110,8 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
     const zodImports: ZodImportInfo[] = [];
 
     const lines = modelBody.split('\n');
-    let lastFieldName = '';
-    let lastFieldType = '';
     let pendingZodDirective: string | undefined;
+    let nextFieldShouldBeSearchable = false; // Flag for both /// @enableSearch and // @enableSearch
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]?.trim();
@@ -122,12 +121,15 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
         continue;
       }
 
-      // Check for standalone @enableSearch comment
-      if (line === '// @enableSearch' && lastFieldName) {
-        searchFields.push({
-          name: lastFieldName,
-          type: lastFieldType,
-        });
+      // Check for /// @enableSearch directive (applies to NEXT field)
+      if (line === '/// @enableSearch') {
+        nextFieldShouldBeSearchable = true;
+        continue;
+      }
+
+      // Check for standalone // @enableSearch comment (applies to NEXT field)
+      if (line === '// @enableSearch') {
+        nextFieldShouldBeSearchable = true;
         continue;
       }
 
@@ -154,9 +156,14 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
         const isArray = !!fieldMatch[3]; // [] makes it an array
         const isOptional = !!fieldMatch[4]; // ? makes it optional
 
-        // Store for potential standalone @enableSearch comment
-        lastFieldName = fieldName || '';
-        lastFieldType = baseFieldType || '';
+        // Check if this field should be searchable due to @enableSearch directive
+        if (nextFieldShouldBeSearchable && fieldName) {
+          searchFields.push({
+            name: fieldName,
+            type: baseFieldType || '',
+          });
+          nextFieldShouldBeSearchable = false; // Reset the flag
+        }
 
         // Detect special fields
         const isId = line.includes('@id');
@@ -182,7 +189,7 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
           // Also detect relation fields by checking if the type is not a primitive type and not an enum
           (!!baseFieldType && !primitiveTypes.includes(baseFieldType) && !enumNames.includes(baseFieldType));
 
-        // Check for inline @enableSearch comment
+        // Check for inline // @enableSearch comment (applies to current field)
         if (line.includes('// @enableSearch')) {
           searchFields.push({
             name: fieldName || '',

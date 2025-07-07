@@ -104,21 +104,53 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
       const enableRealtime = !modelBodyWithComments.includes('// @disableRealtime');
       const searchFields: Array<{ name: string; type: string }> = [];
       
-      // Split model body into lines to check preceding line for @enableSearch
+      // Split model body into lines to check for @enableSearch directives
       const bodyLines = modelBody.trim().split('\n');
+      let nextFieldShouldBeSearchable = false;
+      
       for (let i = 0; i < bodyLines.length; i++) {
         const currentLine = bodyLines[i].trim();
-        const previousLine = i > 0 ? bodyLines[i-1].trim() : "";
 
-        // Check if the PREVIOUS line contains the @enableSearch comment
-        if (previousLine.includes('// @enableSearch')) {
-          // Try to parse the CURRENT line as a field definition
-          // Basic regex: fieldName fieldType (optional attributes/comments)
-          const fieldMatch = currentLine.match(/^(\w+)\s+(\w+)/);
-          if (fieldMatch) {
-            const fieldName = fieldMatch[1];
-            const fieldType = fieldMatch[2];
-            if (fieldName && fieldType) {
+        // Skip blank lines and non-field lines
+        if (!currentLine || currentLine.startsWith('@@')) {
+          continue;
+        }
+
+        // Check for /// @enableSearch directive (applies to NEXT field)
+        if (currentLine === '/// @enableSearch') {
+          nextFieldShouldBeSearchable = true;
+          continue;
+        }
+
+        // Check for standalone // @enableSearch comment (applies to NEXT field)
+        if (currentLine === '// @enableSearch') {
+          nextFieldShouldBeSearchable = true;
+          continue;
+        }
+
+        // Check if line is a comment (skip other comments)
+        if (currentLine.startsWith('//')) {
+          continue;
+        }
+
+        // Parse field definition
+        const fieldMatch = currentLine.match(/^(\w+)\s+(\w+)/);
+        if (fieldMatch) {
+          const fieldName = fieldMatch[1];
+          const fieldType = fieldMatch[2];
+
+          // Check if this field should be searchable due to @enableSearch directive
+          if (nextFieldShouldBeSearchable && fieldName && fieldType) {
+            searchFields.push({
+              name: fieldName,
+              type: fieldType,
+            });
+            nextFieldShouldBeSearchable = false; // Reset flag
+          }
+
+          // Check for inline // @enableSearch comment
+          if (currentLine.includes('// @enableSearch')) {
+            if (fieldName && fieldType && !searchFields.some(f => f.name === fieldName)) {
               searchFields.push({
                 name: fieldName,
                 type: fieldType,

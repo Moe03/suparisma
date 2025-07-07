@@ -8,7 +8,7 @@ export default function Home() {
 
   const itemsPerPage = 10;
   const [page, setPage] = useState(0);
-  
+
   // Add state for filtering and sorting
   const [enumFilter, setEnumFilter] = useState("");
   const [sortField, setSortField] = useState("updatedAt");
@@ -17,22 +17,22 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [arrayFilterExample, setArrayFilterExample] = useState("1");
   const [arrayOperator, setArrayOperator] = useState<'has' | 'hasEvery' | 'hasSome' | 'isEmpty'>('hasEvery');
-  
+
   // Add state for OR/AND testing
   const [useOrLogic, setUseOrLogic] = useState(false);
   const [nameFilter, setNameFilter] = useState("");
   const [numberFilter, setNumberFilter] = useState("");
-  
+
   // Add state for date testing
   const [useDateFilter, setUseDateFilter] = useState(false);
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
-  
+
   // Enhanced search state
   const [activeSearchType, setActiveSearchType] = useState<'none' | 'name' | 'description' | 'multi'>('none');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showSearchStats, setShowSearchStats] = useState(false);
-  
+
   // Array Filtering Examples - You can now use powerful array operators:
   /*
     // Array contains ANY of the specified items
@@ -62,13 +62,13 @@ export default function Home() {
     someNumber: { gt: 10, lt: 100 }
   */
   // const [thingsCount, setThingsCount] = useState(0);
-  
+
   // Create a stable where object that only changes when filters actually change
   const whereFilter = useMemo(() => {
     // Date Range Filtering Example 🔥 NEW: Proper Date type support!
     if (useDateFilter && (dateFromFilter || dateToFilter)) {
       const filter: any = {};
-      
+
       if (dateFromFilter && dateToFilter) {
         // Date range: between two dates
         filter.createdAt = {
@@ -86,10 +86,10 @@ export default function Home() {
           lte: new Date(dateToFilter)
         };
       }
-      
+
       return filter;
     }
-    
+
     // OR/AND Logic Example
     if (useOrLogic && (nameFilter || numberFilter)) {
       return {
@@ -100,7 +100,7 @@ export default function Home() {
         ]
       };
     }
-    
+
     // Complex AND + OR example
     if (useOrLogic && enumFilter) {
       return {
@@ -113,17 +113,17 @@ export default function Home() {
         ]
       };
     }
-    
+
     if (arrayFilterExample) {
       return {
         // Dynamic array filtering based on selected operator
-        stringArray: arrayOperator === 'isEmpty' 
+        stringArray: arrayOperator === 'isEmpty'
           ? { isEmpty: false } // Test non-empty arrays
           : arrayOperator === 'hasEvery'
-          ? { hasEvery: ["1", "2", "3"] } // Must contain all three
-          : arrayOperator === 'has'
-          ? { has: [arrayFilterExample] } // Must contain the specified item
-          : { hasSome: [arrayFilterExample, "2"] } // Must contain any of these items
+            ? { hasEvery: ["1", "2", "3"] } // Must contain all three
+            : arrayOperator === 'has'
+              ? { has: [arrayFilterExample] } // Must contain the specified item
+              : { hasSome: [arrayFilterExample, "2"] } // Must contain any of these items
       };
     } else if (enumFilter) {
       return {
@@ -132,8 +132,8 @@ export default function Home() {
     }
     return undefined;
   }, [arrayFilterExample, arrayOperator, enumFilter, useOrLogic, nameFilter, numberFilter, useDateFilter, dateFromFilter, dateToFilter]);
-  
-  const { 
+
+  const {
     data: things,
     loading: isLoadingThing,
     error: thingError,
@@ -142,12 +142,14 @@ export default function Home() {
     delete: deleteThing,
     count: thingCount,
     search: searchThings,
-    
+
   } = useSuparisma.thing({
     realtime: true,
     limit: itemsPerPage,
     offset: page * itemsPerPage,
-    // where: whereFilter,
+    where: {
+      someEnum: 'ONE'
+    },
     orderBy: {
       [sortField]: sortDirection
     },
@@ -172,21 +174,33 @@ export default function Home() {
   // Function to highlight search terms in text (memoized to prevent re-renders)
   const highlightSearchTerm = useCallback((text: string, searchTerm: string) => {
     if (!searchTerm || !text) return text;
-    
-    const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'));
-    return parts.map((part, index) => 
-      part.toLowerCase() === searchTerm.toLowerCase() 
-        ? <mark key={index} className="bg-yellow-200 px-1 rounded">{part}</mark>
-        : part
-    );
-  }, []);
+
+    try {
+      // Use the built-in escapeRegex method from the search object
+      const escapedSearchTerm = searchThings.escapeRegex(searchTerm.trim());
+
+      if (!escapedSearchTerm) return text;
+
+      // Split by the escaped search term
+      const parts = text.split(new RegExp(`(${escapedSearchTerm})`, 'gi'));
+
+      return parts.map((part, index) =>
+        part.toLowerCase() === searchTerm.toLowerCase()
+          ? <mark key={index} className="bg-yellow-200 px-1 rounded">{part}</mark>
+          : part
+      );
+    } catch (error) {
+      console.warn('Error highlighting search term:', error);
+      return text; // Fallback to original text if highlighting fails
+    }
+  }, [searchThings.escapeRegex]);
 
   // Get current search term for highlighting (memoized)
-  const currentSearchTerm = useMemo(() => 
+  const currentSearchTerm = useMemo(() =>
     searchThings.queries.length > 0 ? searchThings.queries[0].value : ''
-  , [searchThings.queries]);
+    , [searchThings.queries]);
 
-  if(thingError) {
+  if (thingError) {
     return <div>Error: {thingError.message}</div>;
   }
 
@@ -236,7 +250,7 @@ export default function Home() {
                 <button
                   key={suggestion}
                   onClick={() => {
-                    const searchTerm = suggestion.replace(/\s+/g, '+'); // Replace spaces with +
+                    const searchTerm = suggestion.replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
                     setActiveSearchType('multi');
                     searchThings.searchMultiField(searchTerm);
                   }}
@@ -254,13 +268,13 @@ export default function Home() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               🎯 Search Name Field Only
             </label>
-            <input 
-              type="text" 
-              placeholder="Search by name..." 
+            <input
+              type="text"
+              placeholder="Search by name..."
               onChange={(e) => {
                 const searchValue = e.target.value;
                 if (searchValue.trim()) {
-                  const searchTerm = searchValue.trim().replace(/\s+/g, '+'); // Replace spaces with +
+                  const searchTerm = searchValue.trim().replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
                   setActiveSearchType('name');
                   searchThings.searchField("name", searchTerm);
                   // Add to search history (original term for display)
@@ -288,13 +302,13 @@ export default function Home() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               📝 Search Description Field Only
             </label>
-            <input 
-              type="text" 
-              placeholder="Search by description..." 
+            <input
+              type="text"
+              placeholder="Search by description..."
               onChange={(e) => {
                 const searchValue = e.target.value;
                 if (searchValue.trim()) {
-                  const searchTerm = searchValue.trim().replace(/\s+/g, '+'); // Replace spaces with +
+                  const searchTerm = searchValue.trim().replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
                   setActiveSearchType('description');
                   searchThings.searchField("description", searchTerm);
                   // Add to search history (original term for display)
@@ -317,18 +331,18 @@ export default function Home() {
             />
             <p className="text-xs text-gray-500 mt-1">Uses: <code>search_thing_by_description_prefix</code> RPC function</p>
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               🌍 Multi-Field Search (Name + Description)
             </label>
-            <input 
-              type="text" 
-              placeholder="Search across all fields..." 
+            <input
+              type="text"
+              placeholder="Search across all fields..."
               onChange={(e) => {
                 const searchValue = e.target.value;
                 if (searchValue.trim()) {
-                  const searchTerm = searchValue.trim().replace(/\s+/g, '+'); // Replace spaces with +
+                  const searchTerm = searchValue.trim().replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
                   setActiveSearchType('multi');
                   searchThings.searchMultiField(searchTerm);
                   // Add to search history (original term for display)
@@ -362,7 +376,7 @@ export default function Home() {
                 <button
                   key={index}
                   onClick={() => {
-                    const searchTerm = term.replace(/\s+/g, '+'); // Replace spaces with +
+                    const searchTerm = term.replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
                     setActiveSearchType('multi');
                     searchThings.searchMultiField(searchTerm);
                   }}
@@ -380,22 +394,22 @@ export default function Home() {
             </div>
           </div>
         )}
-        
+
         <div className="mt-4 p-3 bg-blue-50 rounded-md">
           <p className="text-sm text-blue-800">
-            <strong>✅ Features:</strong> PostgreSQL full-text search with <code>to_tsvector</code> and <code>to_tsquery</code> • 
-            GIN indexes for performance • Partial/prefix matching with <code>:*</code> • 
-            Multi-word search (spaces → <code>+</code>) • Type-safe search methods • Real-time results • Error handling • Search history • 
+            <strong>✅ Features:</strong> PostgreSQL full-text search with <code>to_tsvector</code> and <code>to_tsquery</code> •
+            GIN indexes for performance • Partial/prefix matching with <code>:*</code> •
+            Multi-word search (spaces → <code>&</code> for AND logic) • Type-safe search methods • Real-time results • Error handling • Search history •
             Keyboard shortcuts (ESC to clear, <kbd className="bg-white px-1 rounded border text-xs">Ctrl/Cmd + K</kbd> to focus search)
           </p>
         </div>
-        
+
         {searchThings.queries.length > 0 && (
           <div className="mt-3 p-2 bg-gray-100 rounded-md">
             <p className="text-sm font-medium text-gray-700">
               🔍 Active Search: {searchThings.queries.map(q => `${q.field}:"${q.value}"`).join(', ')}
               {searchThings.loading && <span className="ml-2 text-blue-600">⏳ Searching...</span>}
-              <button 
+              <button
                 onClick={() => {
                   setActiveSearchType('none');
                   searchThings.clearQueries();
@@ -414,19 +428,19 @@ export default function Home() {
           <h2 className="text-xl font-semibold">Data Management</h2>
           {searchThings.queries.length > 0 && (
             <p className="text-sm text-gray-600 mt-1">
-              Showing {thingCount} search result{thingCount !== 1 ? 's' : ''} 
+              Showing {thingCount} search result{thingCount !== 1 ? 's' : ''}
               {currentSearchTerm && <> for "<strong>{currentSearchTerm}</strong>"</>}
             </p>
           )}
         </div>
         <div className="flex space-x-2">
-          <button 
+          <button
             onClick={() => {
-              createThing({ 
-                name: 'Sample Item ' + Math.floor(Math.random() * 1000), 
+              createThing({
+                name: 'Sample Item ' + Math.floor(Math.random() * 1000),
                 description: 'This is a test description for search functionality. Created at ' + new Date().toLocaleTimeString(),
-                someNumber: Math.floor(Math.random() * 100), 
-                stringArray: ['search', 'test', 'demo'] 
+                someNumber: Math.floor(Math.random() * 100),
+                stringArray: ['search', 'test', 'demo']
               });
             }}
             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
@@ -434,9 +448,9 @@ export default function Home() {
           >
             {isLoadingThing ? "Creating..." : "➕ Create Test Item"}
           </button>
-          
+
           {/* Bulk create for testing search */}
-          <button 
+          <button
             onClick={() => {
               const sampleData = [
                 { name: 'React Developer', description: 'Expert in React and TypeScript development' },
@@ -445,7 +459,7 @@ export default function Home() {
                 { name: 'Frontend Designer', description: 'Creating beautiful user interfaces' },
                 { name: 'Search Expert', description: 'Full-text search and indexing professional' }
               ];
-              
+
               // Create items sequentially with delay to avoid overwhelming the system
               sampleData.forEach((data, index) => {
                 setTimeout(() => {
@@ -486,7 +500,7 @@ export default function Home() {
               <span className="text-sm font-medium">Enable Date Filtering</span>
             </label>
           </div>
-          
+
           {useDateFilter && (
             <>
               <div>
@@ -504,7 +518,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="dateToFilter" className="block text-sm font-medium text-gray-700 mb-1">
                   To Date
@@ -520,7 +534,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div className="text-sm text-gray-600">
                 <p><strong>Fixed Issues:</strong></p>
                 <p>✅ Date types are now proper Date objects</p>
@@ -552,7 +566,7 @@ export default function Home() {
               <span className="text-sm font-medium">Enable OR/AND Logic</span>
             </label>
           </div>
-          
+
           {useOrLogic && (
             <>
               <div>
@@ -571,7 +585,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="numberFilter" className="block text-sm font-medium text-gray-700 mb-1">
                   Number &gt;= (OR)
@@ -588,7 +602,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div className="text-sm text-gray-600">
                 <p><strong>Query:</strong> OR Logic</p>
                 <p>• Name contains text OR</p>
@@ -668,7 +682,7 @@ export default function Home() {
             {arrayOperator === 'isEmpty' && "Array is not empty"}
           </small>
         </div>
-        
+
         <div>
           <label htmlFor="sortField" className="block text-sm font-medium text-gray-700 mb-1">
             Sort By
@@ -687,7 +701,7 @@ export default function Home() {
             <option value="someNumber">Number</option>
           </select>
         </div>
-        
+
         <div>
           <label htmlFor="sortDirection" className="block text-sm font-medium text-gray-700 mb-1">
             Sort Direction
@@ -748,19 +762,19 @@ export default function Home() {
                   </span>
                 </td>
                 <td className="py-2 px-4 border-b">
-                  <button 
-                    onClick={() => updateThing({ 
-                      where: { id: thing.id }, 
-                      data: { 
+                  <button
+                    onClick={() => updateThing({
+                      where: { id: thing.id },
+                      data: {
                         name: 'Updated: ' + (thing.name || 'Thing'),
                         description: 'Updated description: ' + new Date().toLocaleTimeString()
-                      } 
+                      }
                     })}
                     className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mr-2 text-sm"
                   >
                     Update
                   </button>
-                  <button 
+                  <button
                     onClick={() => deleteThing({ id: thing.id })}
                     className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-sm"
                   >
