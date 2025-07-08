@@ -250,7 +250,8 @@ export default function Home() {
                 <button
                   key={suggestion}
                   onClick={() => {
-                    const searchTerm = suggestion.replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
+                    // For partial searches, don't use strict AND logic - just pass the original query
+                    const searchTerm = suggestion;
                     setActiveSearchType('multi');
                     searchThings.searchMultiField(searchTerm);
                   }}
@@ -274,7 +275,9 @@ export default function Home() {
               onChange={(e) => {
                 const searchValue = e.target.value;
                 if (searchValue.trim()) {
-                  const searchTerm = searchValue.trim().replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
+                  // For partial searches, don't use strict AND logic - just pass the original query
+                  // The RPC function has both full-text search AND ILIKE fallback
+                  const searchTerm = searchValue.trim();
                   setActiveSearchType('name');
                   searchThings.searchField("name", searchTerm);
                   // Add to search history (original term for display)
@@ -308,7 +311,9 @@ export default function Home() {
               onChange={(e) => {
                 const searchValue = e.target.value;
                 if (searchValue.trim()) {
-                  const searchTerm = searchValue.trim().replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
+                  // For partial searches, don't use strict AND logic - just pass the original query
+                  // The RPC function has both full-text search AND ILIKE fallback
+                  const searchTerm = searchValue.trim();
                   setActiveSearchType('description');
                   searchThings.searchField("description", searchTerm);
                   // Add to search history (original term for display)
@@ -342,7 +347,9 @@ export default function Home() {
               onChange={(e) => {
                 const searchValue = e.target.value;
                 if (searchValue.trim()) {
-                  const searchTerm = searchValue.trim().replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
+                  // For partial searches, don't use strict AND logic - just pass the original query
+                  // The RPC function has both full-text search AND ILIKE fallback
+                  const searchTerm = searchValue.trim();
                   setActiveSearchType('multi');
                   searchThings.searchMultiField(searchTerm);
                   // Add to search history (original term for display)
@@ -376,7 +383,8 @@ export default function Home() {
                 <button
                   key={index}
                   onClick={() => {
-                    const searchTerm = term.replace(/\s+/g, ' & '); // Replace spaces with & (AND logic)
+                    // For partial searches, don't use strict AND logic - just pass the original query
+                    const searchTerm = term;
                     setActiveSearchType('multi');
                     searchThings.searchMultiField(searchTerm);
                   }}
@@ -399,7 +407,7 @@ export default function Home() {
           <p className="text-sm text-blue-800">
             <strong>✅ Features:</strong> PostgreSQL full-text search with <code>to_tsvector</code> and <code>to_tsquery</code> •
             GIN indexes for performance • Partial/prefix matching with <code>:*</code> •
-            Multi-word search (spaces → <code>&</code> for AND logic) • Type-safe search methods • Real-time results • Error handling • Search history •
+            Multi-word search with ILIKE fallback for partial matches • Type-safe search methods • Real-time results • Error handling • Search history •
             Keyboard shortcuts (ESC to clear, <kbd className="bg-white px-1 rounded border text-xs">Ctrl/Cmd + K</kbd> to focus search)
           </p>
         </div>
