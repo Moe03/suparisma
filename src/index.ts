@@ -109,7 +109,7 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
       let nextFieldShouldBeSearchable = false;
       
       for (let i = 0; i < bodyLines.length; i++) {
-        const currentLine = bodyLines[i].trim();
+        const currentLine = bodyLines[i]?.trim() || '';
 
         // Skip blank lines and non-field lines
         if (!currentLine || currentLine.startsWith('@@')) {
@@ -122,19 +122,19 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
           continue;
         }
 
-        // Check for standalone // @enableSearch comment (applies to NEXT field)
+        // Check for standalone // @enableSearch comment (applies to NEXT field)  
         if (currentLine === '// @enableSearch') {
           nextFieldShouldBeSearchable = true;
           continue;
         }
 
-        // Check if line is a comment (skip other comments)
-        if (currentLine.startsWith('//')) {
+        // Check if line is a comment - SKIP ALL TYPES of comments but keep search flag
+        if (currentLine.startsWith('///') || currentLine.startsWith('//')) {
           continue;
         }
 
-        // Parse field definition
-        const fieldMatch = currentLine.match(/^(\w+)\s+(\w+)/);
+        // Parse field definition - Updated to handle array types and inline comments  
+        const fieldMatch = currentLine.match(/^\s*(\w+)\s+(\w+)(\[\])?(\?)?\s*/);
         if (fieldMatch) {
           const fieldName = fieldMatch[1];
           const fieldType = fieldMatch[2];
@@ -159,7 +159,7 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
           }
         }
       }
-
+      
       modelInfos.push({
         name: modelName,
         tableName,
@@ -261,15 +261,45 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
 
           console.log(`    ➡️ Configuring field "${actualColumnName}":`);
           try {
-            // Create search function with improved error handling and null safety
+            // Create search function with improved partial search and error handling
             const createFunctionQuery = `
               CREATE OR REPLACE FUNCTION "public"."${functionName}"(search_prefix text)
               RETURNS SETOF "public"."${actualTableName}" AS $$
+              DECLARE
+                clean_prefix text;
+                words text[];
+                word text;
+                tsquery_str text := '';
               BEGIN
                 -- Handle empty or null search terms
                 IF search_prefix IS NULL OR trim(search_prefix) = '' THEN
                   RETURN;
                 END IF;
+                
+                -- Clean the search prefix: remove special characters, normalize spaces
+                clean_prefix := regexp_replace(trim(search_prefix), '[^a-zA-Z0-9\\s]', ' ', 'g');
+                clean_prefix := regexp_replace(clean_prefix, '\\s+', ' ', 'g');
+                clean_prefix := trim(clean_prefix);
+                
+                -- Handle empty string after cleaning
+                IF clean_prefix = '' THEN
+                  RETURN;
+                END IF;
+                
+                -- Split into words and build partial search query
+                words := string_to_array(clean_prefix, ' ');
+                
+                -- Build tsquery for partial matching
+                FOR i IN 1..array_length(words, 1) LOOP
+                  word := words[i];
+                  IF word != '' THEN
+                    IF tsquery_str != '' THEN
+                      tsquery_str := tsquery_str || ' & ';
+                    END IF;
+                    -- Add prefix matching for each word
+                    tsquery_str := tsquery_str || word || ':*';
+                  END IF;
+                END LOOP;
                 
                 -- Return query with proper error handling
                 RETURN QUERY
@@ -277,11 +307,24 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
                 WHERE 
                   "${actualColumnName}" IS NOT NULL 
                   AND "${actualColumnName}" != ''
-                  AND to_tsvector('english', "${actualColumnName}") @@ to_tsquery('english', search_prefix || ':*');
+                  AND (
+                    -- Use the built tsquery for structured search
+                    to_tsvector('english', "${actualColumnName}") @@ to_tsquery('english', tsquery_str)
+                    OR
+                    -- Fallback to simple text matching for very partial matches
+                    "${actualColumnName}" ILIKE '%' || search_prefix || '%'
+                  );
               EXCEPTION
                 WHEN others THEN
                   -- Log error and return empty result set instead of failing
-                  RAISE NOTICE 'Search function error: %', SQLERRM;
+                  RAISE NOTICE 'Search function error: %, falling back to simple ILIKE search', SQLERRM;
+                  -- Fallback to simple pattern matching
+                  RETURN QUERY
+                  SELECT * FROM "public"."${actualTableName}"
+                  WHERE 
+                    "${actualColumnName}" IS NOT NULL 
+                    AND "${actualColumnName}" != ''
+                    AND "${actualColumnName}" ILIKE '%' || search_prefix || '%';
                   RETURN;
               END;
               $$ LANGUAGE plpgsql STABLE;`; // Added STABLE for performance
@@ -338,27 +381,69 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
                 return matchingColumn.column_name;
               });
               
-              // Create multi-field search function
+              // Create multi-field search function with improved partial search
               const createMultiFieldFunctionQuery = `
                 CREATE OR REPLACE FUNCTION "public"."${multiFieldFunctionName}"(search_prefix text)
                 RETURNS SETOF "public"."${actualTableName}" AS $$
+                DECLARE
+                  clean_prefix text;
+                  words text[];
+                  word text;
+                  tsquery_str text := '';
+                  combined_text text;
                 BEGIN
                   -- Handle empty or null search terms
                   IF search_prefix IS NULL OR trim(search_prefix) = '' THEN
                     RETURN;
                   END IF;
                   
+                  -- Clean the search prefix: remove special characters, normalize spaces
+                  clean_prefix := regexp_replace(trim(search_prefix), '[^a-zA-Z0-9\\s]', ' ', 'g');
+                  clean_prefix := regexp_replace(clean_prefix, '\\s+', ' ', 'g');
+                  clean_prefix := trim(clean_prefix);
+                  
+                  -- Handle empty string after cleaning
+                  IF clean_prefix = '' THEN
+                    RETURN;
+                  END IF;
+                  
+                  -- Split into words and build partial search query
+                  words := string_to_array(clean_prefix, ' ');
+                  
+                  -- Build tsquery for partial matching
+                  FOR i IN 1..array_length(words, 1) LOOP
+                    word := words[i];
+                    IF word != '' THEN
+                      IF tsquery_str != '' THEN
+                        tsquery_str := tsquery_str || ' & ';
+                      END IF;
+                      -- Add prefix matching for each word
+                      tsquery_str := tsquery_str || word || ':*';
+                    END IF;
+                  END LOOP;
+                  
                   -- Return query searching across all searchable fields
                   RETURN QUERY
                   SELECT * FROM "public"."${actualTableName}"
                   WHERE 
-                    to_tsvector('english', 
-                      COALESCE("${actualColumnNames.join('", \'\') || \' \' || COALESCE("')}", '')
-                    ) @@ to_tsquery('english', search_prefix || ':*');
+                    (
+                      -- Use the built tsquery for structured search
+                      to_tsvector('english', 
+                        COALESCE("${actualColumnNames.join('", \'\') || \' \' || COALESCE("')}", '')
+                      ) @@ to_tsquery('english', tsquery_str)
+                      OR
+                      -- Fallback to simple text matching across all fields
+                      (${actualColumnNames.map(col => `"${col}" ILIKE '%' || search_prefix || '%'`).join(' OR ')})
+                    );
                 EXCEPTION
                   WHEN others THEN
                     -- Log error and return empty result set instead of failing
-                    RAISE NOTICE 'Multi-field search function error: %', SQLERRM;
+                    RAISE NOTICE 'Multi-field search function error: %, falling back to simple ILIKE search', SQLERRM;
+                    -- Fallback to simple pattern matching across all fields
+                    RETURN QUERY
+                    SELECT * FROM "public"."${actualTableName}"
+                    WHERE 
+                      (${actualColumnNames.map(col => `"${col}" ILIKE '%' || search_prefix || '%'`).join(' OR ')});
                     RETURN;
                 END;
                 $$ LANGUAGE plpgsql STABLE;`;
