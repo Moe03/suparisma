@@ -18,9 +18,13 @@ import { supabase } from './supabase-client';
  * @example
  * // Search for users with names containing "john"
  * const query = { field: "name", value: "john" };
+ * 
+ * @example
+ * // Search across multiple fields
+ * const query = { field: "multi", value: "john" };
  */
 export type SearchQuery = {
-  /** The field name to search in */
+  /** The field name to search in, or "multi" for multi-field search */
   field: string;
   /** The search term/value to look for */
   value: string;
@@ -28,6 +32,15 @@ export type SearchQuery = {
 
 // Define type for Supabase query builder
 export type SupabaseQueryBuilder = ReturnType<ReturnType<typeof supabase.from>['select']>;
+
+/**
+ * Utility function to escape regex special characters for safe RegExp usage
+ * Prevents "Invalid regular expression" errors when search terms contain special characters
+ */
+export function escapeRegexCharacters(str: string): string {
+  // Escape all special regex characters: ( ) [ ] { } + * ? ^ $ | . \\
+  return str.replace(/[()\\[\\]{}+*?^$|.\\\\]/g, '\\\\\\\\$&');
+}
 
 /**
  * Advanced filter operators for complex queries
@@ -157,10 +170,22 @@ export type ModelResult<T> = Promise<{
  * users.search.addQuery({ field: "name", value: "john" });
  * 
  * @example
+ * // Search across multiple fields
+ * users.search.searchMultiField("john doe");
+ * 
+ * @example
  * // Check if search is loading
  * if (users.search.loading) {
  *   return <div>Searching...</div>;
  * }
+ * 
+ * @example
+ * // Get current search terms for highlighting
+ * const searchTerms = users.search.getCurrentSearchTerms();
+ * 
+ * @example
+ * // Safely escape regex characters
+ * const escaped = users.search.escapeRegex("user@example.com");
  */
 export type SearchState = {
   /** Current active search queries */
@@ -175,6 +200,14 @@ export type SearchState = {
   removeQuery: (field: string) => void;
   /** Clear all search queries and return to normal data fetching */
   clearQueries: () => void;
+  /** Search across multiple fields (convenience method) */
+  searchMultiField: (value: string) => void;
+  /** Search in a specific field (convenience method) */
+  searchField: (field: string, value: string) => void;
+  /** Get current search terms for custom highlighting */
+  getCurrentSearchTerms: () => string[];
+  /** Safely escape regex special characters */
+  escapeRegex: (text: string) => string;
 };
 
 /**
@@ -892,7 +925,39 @@ export function createSuparismaHook<
         setSearchQueries([]);
         isSearchingRef.current = false;
         findMany({ where, orderBy, take: limit, skip: offset });
-      }, [where, orderBy, limit, offset])
+      }, [where, orderBy, limit, offset]),
+      
+      // Search across multiple fields (convenience method)
+      searchMultiField: useCallback((value: string) => {
+        if (searchFields.length <= 1) {
+          console.warn('Multi-field search requires at least 2 searchable fields');
+          return;
+        }
+        
+        setSearchQueries([{ field: 'multi', value }]);
+        executeSearch([{ field: 'multi', value }]);
+      }, [searchFields.length]),
+      
+      // Search in a specific field (convenience method)
+      searchField: useCallback((field: string, value: string) => {
+        if (!searchFields.includes(field)) {
+          console.warn(\`Field "\${field}" is not searchable. Available fields: \${searchFields.join(', ')}\`);
+          return;
+        }
+        
+        setSearchQueries([{ field, value }]);
+        executeSearch([{ field, value }]);
+      }, [searchFields]),
+      
+      // Get current search terms for custom highlighting
+      getCurrentSearchTerms: useCallback(() => {
+        return searchQueries.map(q => q.value.trim());
+      }, [searchQueries]),
+      
+      // Safely escape regex special characters
+      escapeRegex: useCallback((text: string) => {
+        return escapeRegexCharacters(text);
+      }, [])
     };
     
     // Execute search based on queries
@@ -915,13 +980,52 @@ export function createSuparismaHook<
         try {
           let results: TWithRelations[] = [];
           
+          // Validate search queries
+          const validQueries = queries.filter(query => {
+            if (!query.field || !query.value) {
+              console.warn('Invalid search query - missing field or value:', query);
+              return false;
+            }
+            // Allow "multi" as a special field for multi-field search
+            if (query.field === 'multi' && searchFields.length > 1) {
+              return true;
+            }
+            if (!searchFields.includes(query.field)) {
+              console.warn(\`Field "\${query.field}" is not searchable. Available fields: \${searchFields.join(', ')}, or "multi" for multi-field search\`);
+              return false;
+            }
+            return true;
+          });
+          
+          if (validQueries.length === 0) {
+            console.log('No valid search queries found');
+            setData([]);
+            setCount(0);
+            return;
+          }
+          
           // Execute RPC function for each query using Promise.all
-          const searchPromises = queries.map(query => {
-            // Build function name: search_tablename_by_fieldname_prefix
-            const functionName = \`search_\${tableName}_by_\${query.field}_prefix\`;
+          const searchPromises = validQueries.map(query => {
+            // Build function name based on field type
+            const functionName = query.field === 'multi' 
+              ? \`search_\${tableName.toLowerCase()}_multi_field\`
+              : \`search_\${tableName.toLowerCase()}_by_\${query.field.toLowerCase()}_prefix\`;
             
-            // Call RPC function
-            return supabase.rpc(functionName, { prefix: query.value.trim() });
+            console.log(\`🔍 Executing search: \${functionName}(search_prefix: "\${query.value.trim()}")\`);
+            
+            // Call RPC function with proper error handling
+            return Promise.resolve(supabase.rpc(functionName, { search_prefix: query.value.trim() }))
+              .then((result: any) => ({
+                ...result,
+                queryField: query.field,
+                queryValue: query.value
+              }))
+              .catch((error: any) => ({
+                data: null,
+                error: error,
+                queryField: query.field,
+                queryValue: query.value
+              }));
           });
           
           // Execute all search queries in parallel
@@ -929,82 +1033,88 @@ export function createSuparismaHook<
           
           // Combine and deduplicate results
           const allResults: Record<string, TWithRelations> = {};
+          let hasErrors = false;
           
           // Process each search result
-          searchResults.forEach((result, index) => {
+          searchResults.forEach((result: any, index: number) => {
             if (result.error) {
-              console.error(\`Search error for \${queries[index]?.field}:\`, result.error);
+              console.error(\`🔍 Search error for field "\${result.queryField}" with value "\${result.queryValue}":\`, result.error);
+              hasErrors = true;
               return;
             }
             
-            if (result.data) {
+            if (result.data && Array.isArray(result.data)) {
+              console.log(\`🔍 Search results for "\${result.queryField}": \${result.data.length} items\`);
+              
               // Add each result, using id as key to deduplicate
               for (const item of result.data as TWithRelations[]) {
                 // @ts-ignore: Assume item has an id property
-                if (item.id) {
+                if (item && typeof item === 'object' && 'id' in item && item.id) {
                   // @ts-ignore: Add to results using id as key
                   allResults[item.id] = item;
                 }
               }
+            } else if (result.data) {
+              console.warn(\`🔍 Unexpected search result format for "\${result.queryField}":\`, typeof result.data);
             }
           });
           
           // Convert back to array
           results = Object.values(allResults);
+          console.log(\`🔍 Combined search results: \${results.length} unique items\`);
           
-          // Apply any where conditions client-side
+          // Apply any where conditions client-side (now using the proper filter function)
           if (where) {
-            results = results.filter((item) => {
-              for (const [key, value] of Object.entries(where)) {
-                if (typeof value === 'object' && value !== null) {
-                  // Skip complex filters for now
-                  continue;
-                }
-                
-                if (item[key as keyof typeof item] !== value) {
-                  return false;
-                }
-              }
-              return true;
-            });
+            const originalCount = results.length;
+            results = results.filter((item) => matchesFilter(item, where));
+            console.log(\`🔍 After applying where filter: \${results.length}/\${originalCount} items\`);
           }
           
           // Set count directly for search results
           setCount(results.length);
           
-          // Apply ordering if needed
+          // Apply ordering if needed (using the proper compare function)
           if (orderBy) {
-            const orderEntries = Object.entries(orderBy);
-            if (orderEntries.length > 0) {
-              const [orderField, direction] = orderEntries[0] || [];
+            const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
               results = [...results].sort((a, b) => {
-                const aValue = a[orderField as keyof typeof a] ?? '';
-                const bValue = b[orderField as keyof typeof b] ?? '';
+              for (const orderByClause of orderByArray) {
+                for (const [field, direction] of Object.entries(orderByClause)) {
+                  const aValue = a[field as keyof typeof a];
+                  const bValue = b[field as keyof typeof b];
                 
-                if (direction === 'asc') {
-                  return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
-                } else {
-                  return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+                  if (aValue === bValue) continue;
+                  
+                  return compareValues(aValue, bValue, direction as 'asc' | 'desc');
                 }
-              });
-            }
+              }
+              return 0;
+            });
           }
           
           // Apply pagination if needed
           let paginatedResults = results;
-          if (limit && limit > 0) {
-            paginatedResults = results.slice(0, limit);
-          }
-          
           if (offset && offset > 0) {
             paginatedResults = paginatedResults.slice(offset);
           }
           
+          if (limit && limit > 0) {
+            paginatedResults = paginatedResults.slice(0, limit);
+          }
+          
+          console.log(\`🔍 Final search results: \${paginatedResults.length} items (total: \${results.length})\`);
+          
           // Update data with search results
           setData(paginatedResults);
+          
+          // Show error if there were issues but still show partial results
+          if (hasErrors && results.length === 0) {
+            setError(new Error('Search failed - please check if search functions are properly configured'));
+          }
         } catch (err) {
-          console.error('Search error:', err);
+          console.error('🔍 Search error:', err);
           setError(err as Error);
+          setData([]);
+          setCount(0);
         } finally {
           setSearchLoading(false);
         }

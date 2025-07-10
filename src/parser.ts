@@ -79,11 +79,11 @@ function parseZodImport(comment: string): ZodImportInfo[] {
  */
 export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
   const schema = fs.readFileSync(schemaPath, 'utf-8');
-  const modelRegex = /model\s+(\w+)\s+{([^}]*)}/gs;
+  const modelRegex = /model\s+(\w+)\s+{([^}]*)}/g;
   const models: ModelInfo[] = [];
 
   // Extract enum names from the schema
-  const enumRegex = /enum\s+(\w+)\s+{[^}]*}/gs;
+  const enumRegex = /enum\s+(\w+)\s+{[^}]*}/g;
   const enumNames: string[] = [];
   let enumMatch;
   while ((enumMatch = enumRegex.exec(schema)) !== null) {
@@ -109,65 +109,85 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
     // Track zod imports at model level
     const zodImports: ZodImportInfo[] = [];
 
-    const lines = modelBody.split('\n');
-    let lastFieldName = '';
-    let lastFieldType = '';
+    // Use EXACT same logic as analyzePrismaSchema for consistency
+    const bodyLines = modelBody.trim().split('\n');
+    let nextFieldShouldBeSearchable = false;
     let pendingZodDirective: string | undefined;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]?.trim();
+    
+    for (let i = 0; i < bodyLines.length; i++) {
+      const currentLine = bodyLines[i]?.trim();
 
       // Skip blank lines and non-field lines
-      if (!line || line.startsWith('@@')) {
+      if (!currentLine || currentLine.startsWith('@@')) {
         continue;
       }
 
-      // Check for standalone @enableSearch comment
-      if (line === '// @enableSearch' && lastFieldName) {
-        searchFields.push({
-          name: lastFieldName,
-          type: lastFieldType,
-        });
+      // Check for /// @enableSearch directive (applies to NEXT field)
+      if (currentLine === '/// @enableSearch') {
+        nextFieldShouldBeSearchable = true;
         continue;
       }
 
-      // Check if line is a comment
-      if (line.startsWith('//')) {
+      // Check for standalone // @enableSearch comment (applies to NEXT field)
+      if (currentLine === '// @enableSearch') {
+        nextFieldShouldBeSearchable = true;
+        continue;
+      }
+
+             // Check if line is a comment - SKIP ALL TYPES of comments but keep search flag
+       if (currentLine.startsWith('///') || currentLine.startsWith('//')) {
         // Parse zod directives from comments
-        const zodDirective = parseZodDirective(line);
+        const zodDirective = parseZodDirective(currentLine);
         if (zodDirective) {
           pendingZodDirective = zodDirective;
         }
         
         // Parse zod imports from comments
-        const zodImportInfos = parseZodImport(line);
+        const zodImportInfos = parseZodImport(currentLine);
         zodImports.push(...zodImportInfos);
         
         continue;
       }
 
-      // Parse field definition - Updated to handle array types
-      const fieldMatch = line.match(/\s*(\w+)\s+(\w+)(\[\])?(\?)?\s*(?:@[^)]+)?/);
+      // Parse field definition - Updated to handle array types and inline comments  
+      const fieldMatch = currentLine.match(/^\s*(\w+)\s+(\w+)(\[\])?(\?)?\s*/);
       if (fieldMatch) {
         const fieldName = fieldMatch[1];
-        const baseFieldType = fieldMatch[2]; // e.g., "String" from "String[]"
+        const baseFieldType = fieldMatch[2];
+
+        // Check if this field should be searchable due to @enableSearch directive
+        if (nextFieldShouldBeSearchable && fieldName && baseFieldType) {
+          searchFields.push({
+            name: fieldName,
+            type: baseFieldType,
+          });
+          nextFieldShouldBeSearchable = false; // Reset flag
+        }
+
+        // Check for inline // @enableSearch comment
+        if (currentLine.includes('// @enableSearch')) {
+          if (fieldName && baseFieldType && !searchFields.some(f => f.name === fieldName)) {
+            searchFields.push({
+              name: fieldName,
+              type: baseFieldType,
+            });
+          }
+        }
+
+        // Continue with field processing for the fields array
         const isArray = !!fieldMatch[3]; // [] makes it an array
         const isOptional = !!fieldMatch[4]; // ? makes it optional
 
-        // Store for potential standalone @enableSearch comment
-        lastFieldName = fieldName || '';
-        lastFieldType = baseFieldType || '';
-
         // Detect special fields
-        const isId = line.includes('@id');
+        const isId = currentLine.includes('@id');
         const isCreatedAt = fieldName === 'created_at' || fieldName === 'createdAt';
         const isUpdatedAt = fieldName === 'updated_at' || fieldName === 'updatedAt';
-        const hasDefaultValue = line.includes('@default');
+        const hasDefaultValue = currentLine.includes('@default');
 
         // Extract default value if present
         let defaultValue;
         if (hasDefaultValue) {
-          const defaultMatch = line.match(/@default\(\s*(.+?)\s*\)/);
+          const defaultMatch = currentLine.match(/@default\(\s*(.+?)\s*\)/);
           if (defaultMatch) {
             defaultValue = defaultMatch[1];
           }
@@ -176,24 +196,16 @@ export function parsePrismaSchema(schemaPath: string): ModelInfo[] {
         // Improved relation detection
         const primitiveTypes = ['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt'];
         const isRelation =
-          line.includes('@relation') ||
+          currentLine.includes('@relation') ||
           (!!fieldName &&
             (fieldName.endsWith('_id') || fieldName === 'userId' || fieldName === 'user_id')) ||
           // Also detect relation fields by checking if the type is not a primitive type and not an enum
           (!!baseFieldType && !primitiveTypes.includes(baseFieldType) && !enumNames.includes(baseFieldType));
 
-        // Check for inline @enableSearch comment
-        if (line.includes('// @enableSearch')) {
-          searchFields.push({
-            name: fieldName || '',
-            type: baseFieldType || '',
-          });
-        }
-
         // Check for inline zod directive
         let fieldZodDirective = pendingZodDirective;
-        if (line.includes('/// @zod.')) {
-          const inlineZodDirective = parseZodDirective(line);
+        if (currentLine.includes('/// @zod.')) {
+          const inlineZodDirective = parseZodDirective(currentLine);
           if (inlineZodDirective) {
             fieldZodDirective = inlineZodDirective;
           }

@@ -104,21 +104,53 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
       const enableRealtime = !modelBodyWithComments.includes('// @disableRealtime');
       const searchFields: Array<{ name: string; type: string }> = [];
       
-      // Split model body into lines to check preceding line for @enableSearch
+      // Split model body into lines to check for @enableSearch directives
       const bodyLines = modelBody.trim().split('\n');
+      let nextFieldShouldBeSearchable = false;
+      
       for (let i = 0; i < bodyLines.length; i++) {
-        const currentLine = bodyLines[i].trim();
-        const previousLine = i > 0 ? bodyLines[i-1].trim() : "";
+        const currentLine = bodyLines[i]?.trim() || '';
 
-        // Check if the PREVIOUS line contains the @enableSearch comment
-        if (previousLine.includes('// @enableSearch')) {
-          // Try to parse the CURRENT line as a field definition
-          // Basic regex: fieldName fieldType (optional attributes/comments)
-          const fieldMatch = currentLine.match(/^(\w+)\s+(\w+)/);
-          if (fieldMatch) {
-            const fieldName = fieldMatch[1];
-            const fieldType = fieldMatch[2];
-            if (fieldName && fieldType) {
+        // Skip blank lines and non-field lines
+        if (!currentLine || currentLine.startsWith('@@')) {
+          continue;
+        }
+
+        // Check for /// @enableSearch directive (applies to NEXT field)
+        if (currentLine === '/// @enableSearch') {
+          nextFieldShouldBeSearchable = true;
+          continue;
+        }
+
+        // Check for standalone // @enableSearch comment (applies to NEXT field)  
+        if (currentLine === '// @enableSearch') {
+          nextFieldShouldBeSearchable = true;
+          continue;
+        }
+
+        // Check if line is a comment - SKIP ALL TYPES of comments but keep search flag
+        if (currentLine.startsWith('///') || currentLine.startsWith('//')) {
+          continue;
+        }
+
+        // Parse field definition - Updated to handle array types and inline comments  
+        const fieldMatch = currentLine.match(/^\s*(\w+)\s+(\w+)(\[\])?(\?)?\s*/);
+        if (fieldMatch) {
+          const fieldName = fieldMatch[1];
+          const fieldType = fieldMatch[2];
+
+          // Check if this field should be searchable due to @enableSearch directive
+          if (nextFieldShouldBeSearchable && fieldName && fieldType) {
+            searchFields.push({
+              name: fieldName,
+              type: fieldType,
+            });
+            nextFieldShouldBeSearchable = false; // Reset flag
+          }
+
+          // Check for inline // @enableSearch comment
+          if (currentLine.includes('// @enableSearch')) {
+            if (fieldName && fieldType && !searchFields.some(f => f.name === fieldName)) {
               searchFields.push({
                 name: fieldName,
                 type: fieldType,
@@ -127,7 +159,7 @@ function analyzePrismaSchema(schemaPath: string): ModelInfo[] {
           }
         }
       }
-
+      
       modelInfos.push({
         name: modelName,
         tableName,
@@ -213,6 +245,7 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
           [actualTableName]
         );
 
+        // Create individual field search functions
         for (const searchField of model.searchFields) {
           const matchingColumn = columns.find(
             (c: any) => c.column_name.toLowerCase() === searchField.name.toLowerCase()
@@ -228,16 +261,73 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
 
           console.log(`    ➡️ Configuring field "${actualColumnName}":`);
           try {
-            // Create search function
+            // Create search function with improved partial search and error handling
             const createFunctionQuery = `
               CREATE OR REPLACE FUNCTION "public"."${functionName}"(search_prefix text)
               RETURNS SETOF "public"."${actualTableName}" AS $$
+              DECLARE
+                clean_prefix text;
+                words text[];
+                word text;
+                tsquery_str text := '';
               BEGIN
+                -- Handle empty or null search terms
+                IF search_prefix IS NULL OR trim(search_prefix) = '' THEN
+                  RETURN;
+                END IF;
+                
+                -- Clean the search prefix: remove special characters, normalize spaces
+                clean_prefix := regexp_replace(trim(search_prefix), '[^a-zA-Z0-9\\s]', ' ', 'g');
+                clean_prefix := regexp_replace(clean_prefix, '\\s+', ' ', 'g');
+                clean_prefix := trim(clean_prefix);
+                
+                -- Handle empty string after cleaning
+                IF clean_prefix = '' THEN
+                  RETURN;
+                END IF;
+                
+                -- Split into words and build partial search query
+                words := string_to_array(clean_prefix, ' ');
+                
+                -- Build tsquery for partial matching
+                FOR i IN 1..array_length(words, 1) LOOP
+                  word := words[i];
+                  IF word != '' THEN
+                    IF tsquery_str != '' THEN
+                      tsquery_str := tsquery_str || ' & ';
+                    END IF;
+                    -- Add prefix matching for each word
+                    tsquery_str := tsquery_str || word || ':*';
+                  END IF;
+                END LOOP;
+                
+                -- Return query with proper error handling
                 RETURN QUERY
                 SELECT * FROM "public"."${actualTableName}"
-                WHERE to_tsvector('english', "${actualColumnName}") @@ to_tsquery('english', search_prefix || ':*');
+                WHERE 
+                  "${actualColumnName}" IS NOT NULL 
+                  AND "${actualColumnName}" != ''
+                  AND (
+                    -- Use the built tsquery for structured search
+                    to_tsvector('english', "${actualColumnName}") @@ to_tsquery('english', tsquery_str)
+                    OR
+                    -- Fallback to simple text matching for very partial matches
+                    "${actualColumnName}" ILIKE '%' || search_prefix || '%'
+                  );
+              EXCEPTION
+                WHEN others THEN
+                  -- Log error and return empty result set instead of failing
+                  RAISE NOTICE 'Search function error: %, falling back to simple ILIKE search', SQLERRM;
+                  -- Fallback to simple pattern matching
+                  RETURN QUERY
+                  SELECT * FROM "public"."${actualTableName}"
+                  WHERE 
+                    "${actualColumnName}" IS NOT NULL 
+                    AND "${actualColumnName}" != ''
+                    AND "${actualColumnName}" ILIKE '%' || search_prefix || '%';
+                  RETURN;
               END;
-              $$ LANGUAGE plpgsql STABLE;`; // Added STABLE for potential performance benefits
+              $$ LANGUAGE plpgsql STABLE;`; // Added STABLE for performance
             await pool.query(createFunctionQuery);
             console.log(`      ✅ Created/Replaced RPC function: "${functionName}"(search_prefix text)`);
 
@@ -270,6 +360,122 @@ async function configurePrismaTablesForSuparisma(schemaPath: string) {
 
           } catch (err: any) {
             console.error(`      ❌ Failed to set up search for "${actualTableName}"."${actualColumnName}": ${err.message}`);
+          }
+        }
+        
+        // Create multi-field search function if there are multiple searchable fields
+        if (model.searchFields.length > 1) {
+          console.log(`    ➡️ Creating multi-field search function:`);
+          try {
+            const validSearchFields = model.searchFields.filter(field => 
+              columns.find(c => c.column_name.toLowerCase() === field.name.toLowerCase())
+            );
+            
+            if (validSearchFields.length > 1) {
+              const multiFieldFunctionName = `search_${actualTableName.toLowerCase()}_multi_field`;
+              const multiFieldIndexName = `idx_gin_search_${actualTableName.toLowerCase()}_multi_field`;
+              
+              // Get actual column names
+              const actualColumnNames = validSearchFields.map(field => {
+                const matchingColumn = columns.find(c => c.column_name.toLowerCase() === field.name.toLowerCase());
+                return matchingColumn.column_name;
+              });
+              
+              // Create multi-field search function with improved partial search
+              const createMultiFieldFunctionQuery = `
+                CREATE OR REPLACE FUNCTION "public"."${multiFieldFunctionName}"(search_prefix text)
+                RETURNS SETOF "public"."${actualTableName}" AS $$
+                DECLARE
+                  clean_prefix text;
+                  words text[];
+                  word text;
+                  tsquery_str text := '';
+                  combined_text text;
+                BEGIN
+                  -- Handle empty or null search terms
+                  IF search_prefix IS NULL OR trim(search_prefix) = '' THEN
+                    RETURN;
+                  END IF;
+                  
+                  -- Clean the search prefix: remove special characters, normalize spaces
+                  clean_prefix := regexp_replace(trim(search_prefix), '[^a-zA-Z0-9\\s]', ' ', 'g');
+                  clean_prefix := regexp_replace(clean_prefix, '\\s+', ' ', 'g');
+                  clean_prefix := trim(clean_prefix);
+                  
+                  -- Handle empty string after cleaning
+                  IF clean_prefix = '' THEN
+                    RETURN;
+                  END IF;
+                  
+                  -- Split into words and build partial search query
+                  words := string_to_array(clean_prefix, ' ');
+                  
+                  -- Build tsquery for partial matching
+                  FOR i IN 1..array_length(words, 1) LOOP
+                    word := words[i];
+                    IF word != '' THEN
+                      IF tsquery_str != '' THEN
+                        tsquery_str := tsquery_str || ' & ';
+                      END IF;
+                      -- Add prefix matching for each word
+                      tsquery_str := tsquery_str || word || ':*';
+                    END IF;
+                  END LOOP;
+                  
+                  -- Return query searching across all searchable fields
+                  RETURN QUERY
+                  SELECT * FROM "public"."${actualTableName}"
+                  WHERE 
+                    (
+                      -- Use the built tsquery for structured search
+                      to_tsvector('english', 
+                        COALESCE("${actualColumnNames.join('", \'\') || \' \' || COALESCE("')}", '')
+                      ) @@ to_tsquery('english', tsquery_str)
+                      OR
+                      -- Fallback to simple text matching across all fields
+                      (${actualColumnNames.map(col => `"${col}" ILIKE '%' || search_prefix || '%'`).join(' OR ')})
+                    );
+                EXCEPTION
+                  WHEN others THEN
+                    -- Log error and return empty result set instead of failing
+                    RAISE NOTICE 'Multi-field search function error: %, falling back to simple ILIKE search', SQLERRM;
+                    -- Fallback to simple pattern matching across all fields
+                    RETURN QUERY
+                    SELECT * FROM "public"."${actualTableName}"
+                    WHERE 
+                      (${actualColumnNames.map(col => `"${col}" ILIKE '%' || search_prefix || '%'`).join(' OR ')});
+                    RETURN;
+                END;
+                $$ LANGUAGE plpgsql STABLE;`;
+              
+              await pool.query(createMultiFieldFunctionQuery);
+              console.log(`      ✅ Created multi-field search function: "${multiFieldFunctionName}"(search_prefix text)`);
+              
+              // Create multi-field GIN index
+              const createMultiFieldIndexQuery = `
+                DO $$
+                BEGIN
+                  IF NOT EXISTS (
+                    SELECT 1 FROM pg_indexes 
+                    WHERE schemaname = 'public' 
+                    AND tablename = '${actualTableName}'
+                    AND indexname = '${multiFieldIndexName}'
+                  ) THEN
+                    CREATE INDEX "${multiFieldIndexName}" ON "public"."${actualTableName}" 
+                    USING GIN (to_tsvector('english', 
+                      COALESCE("${actualColumnNames.join('", \'\') || \' \' || COALESCE("')}", '')
+                    ));
+                    RAISE NOTICE '      ✅ Created multi-field GIN index: "${multiFieldIndexName}"';
+                  ELSE
+                    RAISE NOTICE '      ℹ️ Multi-field GIN index "${multiFieldIndexName}" already exists.';
+                  END IF;
+                END;
+                $$;`;
+              
+              await pool.query(createMultiFieldIndexQuery);
+            }
+          } catch (err: any) {
+            console.error(`      ❌ Failed to set up multi-field search for "${actualTableName}": ${err.message}`);
           }
         }
       } else {

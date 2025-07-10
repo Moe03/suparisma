@@ -21,7 +21,9 @@ enum SomeEnum {
 
 model User {
   id        String   @id @default(uuid())
+  // @enableSearch
   name      String
+  // @enableSearch  
   email     String   @unique
   things    Thing[]  // One-to-many relation
   createdAt DateTime @default(now())
@@ -33,11 +35,14 @@ model Thing {
   id        String   @id @default(uuid())
   // @enableSearch
   name      String? 
+  // @enableSearch
+  /// Somehting here
+  description String? /// @thing
   stringArray String[]
   someEnum  SomeEnum @default(ONE)
   someNumber Int?
 
-  /// [Json]
+  // @enableSearch
   someJson Json? /// @zod.custom.use(z.array(LLMNodeSchema).nullable())
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])

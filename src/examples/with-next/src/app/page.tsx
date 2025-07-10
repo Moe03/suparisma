@@ -1,14 +1,14 @@
 "use client";
 import { create } from "domain";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import useSuparisma from "../generated";
 
 export default function Home() {
 
   const itemsPerPage = 10;
   const [page, setPage] = useState(0);
-  
+
   // Add state for filtering and sorting
   const [enumFilter, setEnumFilter] = useState("");
   const [sortField, setSortField] = useState("updatedAt");
@@ -17,17 +17,22 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [arrayFilterExample, setArrayFilterExample] = useState("1");
   const [arrayOperator, setArrayOperator] = useState<'has' | 'hasEvery' | 'hasSome' | 'isEmpty'>('hasEvery');
-  
+
   // Add state for OR/AND testing
   const [useOrLogic, setUseOrLogic] = useState(false);
   const [nameFilter, setNameFilter] = useState("");
   const [numberFilter, setNumberFilter] = useState("");
-  
+
   // Add state for date testing
   const [useDateFilter, setUseDateFilter] = useState(false);
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
-  
+
+  // Enhanced search state
+  const [activeSearchType, setActiveSearchType] = useState<'none' | 'name' | 'description' | 'multi'>('none');
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [showSearchStats, setShowSearchStats] = useState(false);
+
   // Array Filtering Examples - You can now use powerful array operators:
   /*
     // Array contains ANY of the specified items
@@ -57,13 +62,13 @@ export default function Home() {
     someNumber: { gt: 10, lt: 100 }
   */
   // const [thingsCount, setThingsCount] = useState(0);
-  
+
   // Create a stable where object that only changes when filters actually change
   const whereFilter = useMemo(() => {
     // Date Range Filtering Example 🔥 NEW: Proper Date type support!
     if (useDateFilter && (dateFromFilter || dateToFilter)) {
       const filter: any = {};
-      
+
       if (dateFromFilter && dateToFilter) {
         // Date range: between two dates
         filter.createdAt = {
@@ -81,10 +86,10 @@ export default function Home() {
           lte: new Date(dateToFilter)
         };
       }
-      
+
       return filter;
     }
-    
+
     // OR/AND Logic Example
     if (useOrLogic && (nameFilter || numberFilter)) {
       return {
@@ -95,7 +100,7 @@ export default function Home() {
         ]
       };
     }
-    
+
     // Complex AND + OR example
     if (useOrLogic && enumFilter) {
       return {
@@ -108,17 +113,17 @@ export default function Home() {
         ]
       };
     }
-    
+
     if (arrayFilterExample) {
       return {
         // Dynamic array filtering based on selected operator
-        stringArray: arrayOperator === 'isEmpty' 
+        stringArray: arrayOperator === 'isEmpty'
           ? { isEmpty: false } // Test non-empty arrays
           : arrayOperator === 'hasEvery'
-          ? { hasEvery: ["1", "2", "3"] } // Must contain all three
-          : arrayOperator === 'has'
-          ? { has: [arrayFilterExample] } // Must contain the specified item
-          : { hasSome: [arrayFilterExample, "2"] } // Must contain any of these items
+            ? { hasEvery: ["1", "2", "3"] } // Must contain all three
+            : arrayOperator === 'has'
+              ? { has: [arrayFilterExample] } // Must contain the specified item
+              : { hasSome: [arrayFilterExample, "2"] } // Must contain any of these items
       };
     } else if (enumFilter) {
       return {
@@ -127,8 +132,8 @@ export default function Home() {
     }
     return undefined;
   }, [arrayFilterExample, arrayOperator, enumFilter, useOrLogic, nameFilter, numberFilter, useDateFilter, dateFromFilter, dateToFilter]);
-  
-  const { 
+
+  const {
     data: things,
     loading: isLoadingThing,
     error: thingError,
@@ -137,58 +142,349 @@ export default function Home() {
     delete: deleteThing,
     count: thingCount,
     search: searchThings,
-    
+
   } = useSuparisma.thing({
     realtime: true,
     limit: itemsPerPage,
     offset: page * itemsPerPage,
-    where: whereFilter,
+    where: {
+      someEnum: 'ONE'
+    },
     orderBy: {
       [sortField]: sortDirection
     },
   });
 
-  // things?.[0]?.someJson;
+  // Global search shortcut (Ctrl/Cmd + K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const firstSearchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+        if (firstSearchInput) {
+          firstSearchInput.focus();
+        }
+      }
+    };
 
-  // useEffect(() => {
-  //   if(thingCount) {
-  //     thingCount().then((count) => {
-  //       setThingsCount(count);
-  //     });
-  //   }
-  // }, []);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
-  if(thingError) {
+  // Function to highlight search terms in text (memoized to prevent re-renders)
+  const highlightSearchTerm = useCallback((text: string, searchTerm: string) => {
+    if (!searchTerm || !text) return text;
+
+    try {
+      // Use the built-in escapeRegex method from the search object
+      const escapedSearchTerm = searchThings.escapeRegex(searchTerm.trim());
+
+      if (!escapedSearchTerm) return text;
+
+      // Split by the escaped search term
+      const parts = text.split(new RegExp(`(${escapedSearchTerm})`, 'gi'));
+
+      return parts.map((part, index) =>
+        part.toLowerCase() === searchTerm.toLowerCase()
+          ? <mark key={index} className="bg-yellow-200 px-1 rounded">{part}</mark>
+          : part
+      );
+    } catch (error) {
+      console.warn('Error highlighting search term:', error);
+      return text; // Fallback to original text if highlighting fails
+    }
+  }, [searchThings.escapeRegex]);
+
+  // Get current search term for highlighting (memoized)
+  const currentSearchTerm = useMemo(() =>
+    searchThings.queries.length > 0 ? searchThings.queries[0].value : ''
+    , [searchThings.queries]);
+
+  if (thingError) {
     return <div>Error: {thingError.message}</div>;
   }
 
-  // if(isLoadingThing) {
-  //   return <div>Loading...</div>;
-  // }
-
-  // console.log(searchThings.queries);
-  
-  console.log(`loading value: ${isLoadingThing}`);
-
   return (
     <div className="container mx-auto p-4 font-[family-name:var(--font-geist-sans)]">
+      <h1 className="text-3xl font-bold mb-6">🔥 Suparisma Full-Text Search Demo</h1>
+
+      {/* Enhanced Search Feature Showcase */}
+      <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-xl font-semibold text-yellow-800">🚀 Advanced Type-Safe Full-Text Search</h2>
+          <button
+            onClick={() => setShowSearchStats(!showSearchStats)}
+            className="text-sm text-yellow-700 hover:text-yellow-900 underline"
+          >
+            {showSearchStats ? 'Hide' : 'Show'} Search Stats
+          </button>
+        </div>
+
+        {/* Search Statistics */}
+        {showSearchStats && (
+          <div className="mb-4 p-3 bg-yellow-100 rounded-md">
+            <h3 className="font-medium text-yellow-800 mb-2">📊 Search Performance Stats</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
+              <div>
+                <span className="font-medium">Total Results:</span> {thingCount}
+              </div>
+              <div>
+                <span className="font-medium">Search Type:</span> {activeSearchType === 'none' ? 'No search' : activeSearchType}
+              </div>
+              <div>
+                <span className="font-medium">Loading:</span> {searchThings.loading ? 'Yes' : 'No'}
+              </div>
+              <div>
+                <span className="font-medium">Active Queries:</span> {searchThings.queries.length}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Search Suggestions */}
+        {searchThings.queries.length === 0 && (
+          <div className="mb-4 p-3 bg-gray-50 rounded-md">
+            <h3 className="text-sm font-medium text-gray-700 mb-2">💡 Try searching for:</h3>
+            <div className="flex flex-wrap gap-2">
+              {['sample', 'test', 'description', 'demo', 'item'].map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => {
+                    // For partial searches, don't use strict AND logic - just pass the original query
+                    const searchTerm = suggestion;
+                    setActiveSearchType('multi');
+                    searchThings.searchMultiField(searchTerm);
+                  }}
+                  className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded-md transition-colors"
+                >
+                  "{suggestion}"
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              🎯 Search Name Field Only
+            </label>
+            <input
+              type="text"
+              placeholder="Search by name..."
+              onChange={(e) => {
+                const searchValue = e.target.value;
+                if (searchValue.trim()) {
+                  // For partial searches, don't use strict AND logic - just pass the original query
+                  // The RPC function has both full-text search AND ILIKE fallback
+                  const searchTerm = searchValue.trim();
+                  setActiveSearchType('name');
+                  searchThings.searchField("name", searchTerm);
+                  // Add to search history (original term for display)
+                  if (!searchHistory.includes(searchValue.trim())) {
+                    setSearchHistory(prev => [searchValue.trim(), ...prev.slice(0, 4)]);
+                  }
+                } else {
+                  setActiveSearchType('none');
+                  searchThings.clearQueries();
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.currentTarget.value = '';
+                  setActiveSearchType('none');
+                  searchThings.clearQueries();
+                }
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Uses: <code>search_thing_by_name_prefix</code> RPC function</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              📝 Search Description Field Only
+            </label>
+            <input
+              type="text"
+              placeholder="Search by description..."
+              onChange={(e) => {
+                const searchValue = e.target.value;
+                if (searchValue.trim()) {
+                  // For partial searches, don't use strict AND logic - just pass the original query
+                  // The RPC function has both full-text search AND ILIKE fallback
+                  const searchTerm = searchValue.trim();
+                  setActiveSearchType('description');
+                  searchThings.searchField("description", searchTerm);
+                  // Add to search history (original term for display)
+                  if (!searchHistory.includes(searchValue.trim())) {
+                    setSearchHistory(prev => [searchValue.trim(), ...prev.slice(0, 4)]);
+                  }
+                } else {
+                  setActiveSearchType('none');
+                  searchThings.clearQueries();
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.currentTarget.value = '';
+                  setActiveSearchType('none');
+                  searchThings.clearQueries();
+                }
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Uses: <code>search_thing_by_description_prefix</code> RPC function</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              🌍 Multi-Field Search (Name + Description)
+            </label>
+            <input
+              type="text"
+              placeholder="Search across all fields..."
+              onChange={(e) => {
+                const searchValue = e.target.value;
+                if (searchValue.trim()) {
+                  // For partial searches, don't use strict AND logic - just pass the original query
+                  // The RPC function has both full-text search AND ILIKE fallback
+                  const searchTerm = searchValue.trim();
+                  setActiveSearchType('multi');
+                  searchThings.searchMultiField(searchTerm);
+                  // Add to search history (original term for display)
+                  if (!searchHistory.includes(searchValue.trim())) {
+                    setSearchHistory(prev => [searchValue.trim(), ...prev.slice(0, 4)]);
+                  }
+                } else {
+                  setActiveSearchType('none');
+                  searchThings.clearQueries();
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.currentTarget.value = '';
+                  setActiveSearchType('none');
+                  searchThings.clearQueries();
+                }
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Uses: <code>search_thing_multi_field</code> RPC function</p>
+          </div>
+        </div>
+
+        {/* Search History */}
+        {searchHistory.length > 0 && (
+          <div className="mt-4">
+            <h3 className="text-sm font-medium text-gray-700 mb-2">🕒 Recent Searches</h3>
+            <div className="flex flex-wrap gap-2">
+              {searchHistory.map((term, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    // For partial searches, don't use strict AND logic - just pass the original query
+                    const searchTerm = term;
+                    setActiveSearchType('multi');
+                    searchThings.searchMultiField(searchTerm);
+                  }}
+                  className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded-md transition-colors"
+                >
+                  {term}
+                </button>
+              ))}
+              <button
+                onClick={() => setSearchHistory([])}
+                className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded-md transition-colors"
+              >
+                Clear History
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 p-3 bg-blue-50 rounded-md">
+          <p className="text-sm text-blue-800">
+            <strong>✅ Features:</strong> PostgreSQL full-text search with <code>to_tsvector</code> and <code>to_tsquery</code> •
+            GIN indexes for performance • Partial/prefix matching with <code>:*</code> •
+            Multi-word search with ILIKE fallback for partial matches • Type-safe search methods • Real-time results • Error handling • Search history •
+            Keyboard shortcuts (ESC to clear, <kbd className="bg-white px-1 rounded border text-xs">Ctrl/Cmd + K</kbd> to focus search)
+          </p>
+        </div>
+
+        {searchThings.queries.length > 0 && (
+          <div className="mt-3 p-2 bg-gray-100 rounded-md">
+            <p className="text-sm font-medium text-gray-700">
+              🔍 Active Search: {searchThings.queries.map(q => `${q.field}:"${q.value}"`).join(', ')}
+              {searchThings.loading && <span className="ml-2 text-blue-600">⏳ Searching...</span>}
+              <button
+                onClick={() => {
+                  setActiveSearchType('none');
+                  searchThings.clearQueries();
+                }}
+                className="ml-2 text-xs text-red-600 hover:text-red-800 underline"
+              >
+                Clear Search
+              </button>
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Suparisma Things</h1>
-        <input type="text" placeholder="Search" onChange={(e) => {
-          const searchValue = e.target.value;
-          console.log(`searchValue: ${searchValue}`);
-        
-              searchThings.setQueries([{
-                field: "name",
-                value: searchValue?.trim(),
-              }]);
-        }} />
-        <button 
-          onClick={() => createThing({ name: 'New Thing', someNumber: Math.floor(Math.random() * 100), stringArray: ['1', '2', '3'] })}
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-        >
-          Create New Thing {isLoadingThing ? "..." : ""}
-        </button>
+        <div>
+          <h2 className="text-xl font-semibold">Data Management</h2>
+          {searchThings.queries.length > 0 && (
+            <p className="text-sm text-gray-600 mt-1">
+              Showing {thingCount} search result{thingCount !== 1 ? 's' : ''}
+              {currentSearchTerm && <> for "<strong>{currentSearchTerm}</strong>"</>}
+            </p>
+          )}
+        </div>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => {
+              createThing({
+                name: 'Sample Item ' + Math.floor(Math.random() * 1000),
+                description: 'This is a test description for search functionality. Created at ' + new Date().toLocaleTimeString(),
+                someNumber: Math.floor(Math.random() * 100),
+                stringArray: ['search', 'test', 'demo']
+              });
+            }}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+            disabled={isLoadingThing}
+          >
+            {isLoadingThing ? "Creating..." : "➕ Create Test Item"}
+          </button>
+
+          {/* Bulk create for testing search */}
+          <button
+            onClick={() => {
+              const sampleData = [
+                { name: 'React Developer', description: 'Expert in React and TypeScript development' },
+                { name: 'Node.js Backend', description: 'Building scalable backend services' },
+                { name: 'Database Engineer', description: 'PostgreSQL and database optimization specialist' },
+                { name: 'Frontend Designer', description: 'Creating beautiful user interfaces' },
+                { name: 'Search Expert', description: 'Full-text search and indexing professional' }
+              ];
+
+              // Create items sequentially with delay to avoid overwhelming the system
+              sampleData.forEach((data, index) => {
+                setTimeout(() => {
+                  createThing({
+                    ...data,
+                    someNumber: Math.floor(Math.random() * 100),
+                    stringArray: ['test', 'demo', 'sample']
+                  });
+                }, index * 200); // 200ms delay between each creation
+              });
+            }}
+            className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded text-sm"
+            disabled={isLoadingThing}
+          >
+            📦 Create Sample Data
+          </button>
+        </div>
       </div>
 
       {/* Date Range Controls */}
@@ -212,7 +508,7 @@ export default function Home() {
               <span className="text-sm font-medium">Enable Date Filtering</span>
             </label>
           </div>
-          
+
           {useDateFilter && (
             <>
               <div>
@@ -230,7 +526,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="dateToFilter" className="block text-sm font-medium text-gray-700 mb-1">
                   To Date
@@ -246,7 +542,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div className="text-sm text-gray-600">
                 <p><strong>Fixed Issues:</strong></p>
                 <p>✅ Date types are now proper Date objects</p>
@@ -278,7 +574,7 @@ export default function Home() {
               <span className="text-sm font-medium">Enable OR/AND Logic</span>
             </label>
           </div>
-          
+
           {useOrLogic && (
             <>
               <div>
@@ -297,7 +593,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div>
                 <label htmlFor="numberFilter" className="block text-sm font-medium text-gray-700 mb-1">
                   Number &gt;= (OR)
@@ -314,7 +610,7 @@ export default function Home() {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
               </div>
-              
+
               <div className="text-sm text-gray-600">
                 <p><strong>Query:</strong> OR Logic</p>
                 <p>• Name contains text OR</p>
@@ -394,7 +690,7 @@ export default function Home() {
             {arrayOperator === 'isEmpty' && "Array is not empty"}
           </small>
         </div>
-        
+
         <div>
           <label htmlFor="sortField" className="block text-sm font-medium text-gray-700 mb-1">
             Sort By
@@ -413,7 +709,7 @@ export default function Home() {
             <option value="someNumber">Number</option>
           </select>
         </div>
-        
+
         <div>
           <label htmlFor="sortDirection" className="block text-sm font-medium text-gray-700 mb-1">
             Sort Direction
@@ -438,39 +734,55 @@ export default function Home() {
           <thead>
             <tr className="bg-gray-100">
               <th className="py-2 px-4 border-b text-left">Name</th>
-              <th className="py-2 px-4 border-b text-left">Some Number</th>
-              <th className="py-2 px-4 border-b text-left">String Array</th>
+              <th className="py-2 px-4 border-b text-left">Description</th>
+              <th className="py-2 px-4 border-b text-left">Number</th>
+              <th className="py-2 px-4 border-b text-left">Array</th>
               <th className="py-2 px-4 border-b text-left">Enum</th>
-              <th className="py-2 px-4 border-b text-left">Created At</th>
-              <th className="py-2 px-4 border-b text-left">ID</th>
+              <th className="py-2 px-4 border-b text-left">Created</th>
               <th className="py-2 px-4 border-b text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
             {things?.map((thing) => (
               <tr key={thing.id} className="hover:bg-gray-50">
-                <td className="py-2 px-4 border-b">{thing.name}</td>
+                <td className="py-2 px-4 border-b">
+                  <span className="font-medium">
+                    {currentSearchTerm ? highlightSearchTerm(thing.name || '(unnamed)', currentSearchTerm) : (thing.name || '(unnamed)')}
+                  </span>
+                </td>
+                <td className="py-2 px-4 border-b">
+                  <span className="text-sm text-gray-600">
+                    {currentSearchTerm ? highlightSearchTerm(thing.description || '(no description)', currentSearchTerm) : (thing.description || '(no description)')}
+                  </span>
+                </td>
                 <td className="py-2 px-4 border-b">{thing.someNumber}</td>
                 <td className="py-2 px-4 border-b">
                   <span className="text-xs bg-gray-100 px-2 py-1 rounded">
                     [{thing.stringArray?.join(', ') || 'empty'}]
                   </span>
                 </td>
-                <td className="py-2 px-4 border-b">{thing.someEnum}</td>
+                <td className="py-2 px-4 border-b">
+                  <span className="text-xs bg-blue-100 px-2 py-1 rounded">{thing.someEnum}</span>
+                </td>
                 <td className="py-2 px-4 border-b">
                   <span className="text-xs">
                     {new Date(thing.createdAt).toLocaleString()}
                   </span>
                 </td>
-                <td className="py-2 px-4 border-b">{thing.id}</td>
                 <td className="py-2 px-4 border-b">
-                  <button 
-                    onClick={() => updateThing({ where: { id: thing.id }, data: { name: 'Updated Thing Name' } })}
+                  <button
+                    onClick={() => updateThing({
+                      where: { id: thing.id },
+                      data: {
+                        name: 'Updated: ' + (thing.name || 'Thing'),
+                        description: 'Updated description: ' + new Date().toLocaleTimeString()
+                      }
+                    })}
                     className="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mr-2 text-sm"
                   >
                     Update
                   </button>
-                  <button 
+                  <button
                     onClick={() => deleteThing({ id: thing.id })}
                     className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-sm"
                   >
