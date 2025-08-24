@@ -1464,6 +1464,12 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
 GRANT USAGE, SELECT ON SEQUENCES TO anon;
 ```
+ 
+You could also try debugging on a table, the following is NOT recommended but you can debug permissions given to anon, service_account and give all access to anon key to make sure that's not the issue:
+```sql
+GRANT ALL ON TABLE "(tableName)" TO anon;
+GRANT ALL ON TABLE "(tableName)" TO authenticated;
+```
 
 **"Unknown command: undefined"**
 
