@@ -43,6 +43,42 @@ export function escapeRegexCharacters(str: string): string {
 }
 
 /**
+ * Generate a UUID v4, with fallback for environments without crypto.randomUUID()
+ * Works in: browsers, Node.js, and React Native (with react-native-get-random-values polyfill)
+ * 
+ * For React Native, ensure you have installed and imported the polyfill:
+ * - pnpm install react-native-get-random-values
+ * - Import at app entry point: import 'react-native-get-random-values';
+ */
+export function generateUUID(): string {
+  // Try native crypto.randomUUID() first (modern browsers & Node.js 16.7+)
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  
+  // Fallback using crypto.getRandomValues() (works with react-native-get-random-values polyfill)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    
+    // Set version (4) and variant (RFC 4122)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant RFC 4122
+    
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return \`\${hex.slice(0, 8)}-\${hex.slice(8, 12)}-\${hex.slice(12, 16)}-\${hex.slice(16, 20)}-\${hex.slice(20)}\`;
+  }
+  
+  // Last resort fallback using Math.random() (not cryptographically secure)
+  console.warn('[Suparisma] crypto API not available, using Math.random() fallback for UUID generation');
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
  * Advanced filter operators for complex queries
  * @example
  * // Users older than 21
@@ -1685,7 +1721,7 @@ export function createSuparismaHook<
             if (defaultValue.includes('now()') || defaultValue.includes('now')) {
               appliedDefaults[field] = now.toISOString(); // Database expects ISO string
             } else if (defaultValue.includes('uuid()') || defaultValue.includes('uuid')) {
-              appliedDefaults[field] = crypto.randomUUID();
+              appliedDefaults[field] = generateUUID();
             } else if (defaultValue.includes('cuid()') || defaultValue.includes('cuid')) {
               // Simple cuid-like implementation for client-side
               appliedDefaults[field] = 'c' + Math.random().toString(36).substring(2, 15);

@@ -10,3 +10,8 @@ export const TYPES_DIR = `${OUTPUT_DIR}/types`;
 export const HOOKS_DIR = `${OUTPUT_DIR}/hooks`;
 export const UTILS_DIR = `${OUTPUT_DIR}/utils`;
 export const HOOK_NAME_PREFIX = 'useSuparisma';
+
+// Platform configuration for React Native / Expo support
+// Set SUPARISMA_PLATFORM to 'react-native' for React Native/Expo projects
+export type Platform = 'web' | 'react-native';
+export const PLATFORM: Platform = (process.env.SUPARISMA_PLATFORM as Platform) || 'web';

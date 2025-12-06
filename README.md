@@ -16,6 +16,7 @@ A powerful, typesafe React hook generator for Supabase, driven by your Prisma sc
 - [Why Suparisma?](#why-suparisma)
 - [Features](#features)
 - [Installation](#installation)
+- [React Native / Expo Setup](#react-native--expo-setup)
 - [Quick Start](#quick-start)
 - [Detailed Usage](#detailed-usage)
   - [Basic CRUD Operations](#basic-crud-operations)
@@ -60,7 +61,7 @@ Suparisma bridges this gap by:
 - Enabling easy **pagination, filtering, and search** on your data
 - Leveraging both **Prisma** and **Supabase** official SDKs
 - Respecting **Supabase's auth rules** for secure database access
-- Working seamlessly with any React environment (Next.js, Remix, Tanstack Router, etc.)
+- Working seamlessly with any React environment (Next.js, Remix, Tanstack Router, React Native, etc.)
 
 ## Features
 
@@ -70,7 +71,7 @@ Suparisma bridges this gap by:
 - 🔍 **Full-text search** with configurable annotations *(currently under maintenance)*
 - 🔢 **Pagination and sorting** built into every hook
 - 🧩 **Prisma-like API** that feels familiar if you already use Prisma
-- 📱 **Works with any React framework** including Next.js, Remix, etc.
+- 📱 **Works with any React framework** including Next.js, Remix, React Native, and Expo
 - 🛠️ **Simple CLI** to generate hooks with a single command
 
 ## Installation
@@ -85,6 +86,110 @@ yarn add suparisma
 # Using pnpm
 pnpm install suparisma
 ```
+
+## React Native / Expo Setup
+
+Suparisma fully supports React Native and Expo projects. Follow these additional steps for mobile development:
+
+### 1. Install Dependencies
+
+```bash
+# Install Suparisma and required dependencies
+pnpm install suparisma @supabase/supabase-js @react-native-async-storage/async-storage react-native-url-polyfill
+
+# For UUID generation support (recommended)
+pnpm install react-native-get-random-values
+```
+
+### 2. Add Polyfills
+
+Add these imports at the very top of your app's entry point (e.g., `App.tsx` or `index.js`):
+
+```tsx
+// App.tsx or index.js - Add these at the VERY TOP before any other imports
+import 'react-native-get-random-values'; // Required for UUID generation
+import 'react-native-url-polyfill/auto'; // Required for Supabase
+```
+
+### 3. Set Environment Variables
+
+For **Expo** projects, use the `EXPO_PUBLIC_` prefix in your `.env` file:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+EXPO_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
+```
+
+For **bare React Native** projects, use `react-native-dotenv` or similar.
+
+### 4. Generate Hooks for React Native
+
+Set the `SUPARISMA_PLATFORM` environment variable when generating:
+
+```bash
+# Generate hooks for React Native / Expo
+SUPARISMA_PLATFORM=react-native npx suparisma generate
+```
+
+Or add it to your `package.json` scripts:
+
+```json
+{
+  "scripts": {
+    "suparisma:generate": "SUPARISMA_PLATFORM=react-native npx suparisma generate"
+  }
+}
+```
+
+### 5. Use the Hooks
+
+The hooks work exactly the same as in web projects:
+
+```tsx
+import React from 'react';
+import { View, Text, FlatList, TouchableOpacity } from 'react-native';
+import useSuparisma from './src/suparisma/generated';
+
+function ThingList() {
+  const { 
+    data: things,
+    loading,
+    error,
+    create: createThing
+  } = useSuparisma.thing();
+  
+  if (loading) return <Text>Loading...</Text>;
+  if (error) return <Text>Error: {error.message}</Text>;
+  
+  return (
+    <View>
+      <FlatList
+        data={things}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <Text>{item.name} (Number: {item.someNumber})</Text>
+        )}
+      />
+      
+      <TouchableOpacity 
+        onPress={() => createThing({ 
+          name: "New Thing", 
+          someNumber: Math.floor(Math.random() * 100)
+        })}
+      >
+        <Text>Add Thing</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+```
+
+### Platform Detection
+
+The generated Supabase client automatically configures itself for React Native with:
+- **AsyncStorage** for auth persistence
+- **Session detection** disabled (not applicable in mobile)
+- **Auto refresh token** enabled
 
 ## Quick Start
 
@@ -139,6 +244,7 @@ Note: you can adjust the prisma schema path and the generated files output path 
 ```bash
 SUPARISMA_PRISMA_SCHEMA_PATH="./prisma/schema.prisma"
 SUPARISMA_OUTPUT_DIR="./src/suparisma/generated"
+SUPARISMA_PLATFORM="web" # or "react-native" for React Native/Expo projects
 ```
 Also make sure to not change any of these generated files directly as **they will always be overwritten**
 
@@ -1291,10 +1397,13 @@ export default function ThingTable() {
 |----------|----------|-------------|---------|
 | `DATABASE_URL` | Yes | Postgres database URL used by Prisma | `postgresql://user:pass@host:port/db` |
 | `DIRECT_URL` | Yes | Direct URL to Postgres DB for realtime setup | `postgresql://user:pass@host:port/db` |
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Your Supabase project URL | `https://xyz.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key | `eyJh...` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes (Web) | Your Supabase project URL (Next.js) | `https://xyz.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes (Web) | Supabase anonymous key (Next.js) | `eyJh...` |
+| `EXPO_PUBLIC_SUPABASE_URL` | Yes (RN) | Your Supabase project URL (Expo) | `https://xyz.supabase.co` |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes (RN) | Supabase anonymous key (Expo) | `eyJh...` |
 | `SUPARISMA_OUTPUT_DIR` | No | Custom output directory | `src/lib/suparisma` |
 | `SUPARISMA_PRISMA_SCHEMA_PATH` | No | Custom schema path | `db/schema.prisma` |
+| `SUPARISMA_PLATFORM` | No | Target platform: `web` or `react-native` | `react-native` |
 
 ### CLI Commands
 

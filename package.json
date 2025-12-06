@@ -1,7 +1,7 @@
 {
 	"name": "suparisma",
-	"version": "1.2.1",
-	"description": "Opinionated typesafe React realtime CRUD hooks generator for all your Supabase tables, powered by Prisma.",
+	"version": "1.2.2",
+	"description": "Opinionated typesafe React realtime CRUD hooks generator for all your Supabase tables, powered by Prisma. Works with Next.js, Remix, React Native, and Expo.",
 	"main": "dist/index.js",
 	"repository": {
 		"type": "git",
@@ -20,12 +20,15 @@
 	},
 	"keywords": [
 		"react",
+		"react-native",
+		"expo",
 		"hooks",
 		"supabase",
 		"prisma",
 		"typescript",
 		"nextjs",
-		"realtime"
+		"realtime",
+		"mobile"
 	],
 	"dependencies": {
 		"@supabase/supabase-js": "^2.49.4",
@@ -41,5 +44,21 @@
 		"@types/react": "^19.1.4",
 		"prisma": "^6.8.2",
 		"supabase-js": "link:@types/@supabase/supabase-js"
+	},
+	"peerDependencies": {
+		"@react-native-async-storage/async-storage": ">=1.19.0",
+		"react-native-get-random-values": ">=1.9.0",
+		"react-native-url-polyfill": ">=2.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@react-native-async-storage/async-storage": {
+			"optional": true
+		},
+		"react-native-get-random-values": {
+			"optional": true
+		},
+		"react-native-url-polyfill": {
+			"optional": true
+		}
 	}
 }
