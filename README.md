@@ -26,6 +26,8 @@ A powerful, typesafe React hook generator for Supabase, driven by your Prisma sc
   - [Array Filtering](#array-filtering)
   - [Sorting Data](#sorting-data)
   - [Pagination](#pagination)
+  - [Field Selection (select)](#field-selection-select)
+  - [Including Relations (include)](#including-relations-include)
   - [Search Functionality](#search-functionality)
     - [Enabling Search](#enabling-search)
     - [Search Methods](#search-methods)
@@ -732,6 +734,53 @@ const { data: page2 } = useSuparisma.thing({
 // Get total count
 const { data, count } = useSuparisma.thing();
 ```
+
+### Field Selection (select)
+
+Use the `select` option to only return specific fields, reducing payload size:
+
+```tsx
+// Only get id and name fields
+const { data: things } = useSuparisma.thing({
+  select: { id: true, name: true }
+});
+// Returns: [{ id: "123", name: "Thing 1" }, ...]
+
+// Combine with filtering
+const { data: activeThings } = useSuparisma.thing({
+  where: { someEnum: "ONE" },
+  select: { id: true, name: true, someNumber: true }
+});
+```
+
+### Including Relations (include)
+
+Use the `include` option to fetch related records (foreign key relations):
+
+```tsx
+// Include all fields from a related model
+const { data: posts } = useSuparisma.post({
+  include: { author: true }
+});
+// Returns: [{ id: "123", title: "...", author: { id: "456", name: "John" } }, ...]
+
+// Include specific fields from a relation
+const { data: posts } = useSuparisma.post({
+  include: { 
+    author: { 
+      select: { id: true, name: true } 
+    } 
+  }
+});
+
+// Combine select and include
+const { data: posts } = useSuparisma.post({
+  select: { id: true, title: true },
+  include: { author: true, comments: true }
+});
+```
+
+**Note:** The relation names in `include` should match your Prisma schema relation field names.
 
 ### Search Functionality
 
@@ -1525,8 +1574,8 @@ const { data } = useSuparisma.thing({
 | `limit` | `number` | Maximum number of records to return |
 | `offset` | `number` | Number of records to skip for pagination |
 | `realtime` | `boolean` | Enable/disable real-time updates |
-| `select` | `object` | Fields to include in the response |
-| `include` | `object` | Related records to include |
+| `select` | `object` | Fields to include in the response. Use `{ fieldName: true }` syntax |
+| `include` | `object` | Related records to include. Use `{ relationName: true }` or `{ relationName: { select: {...} } }` |
 | `search` | `object` | Full-text search configuration |
 
 ### Hook Return Value

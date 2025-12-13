@@ -51,6 +51,8 @@ import type {
   ${modelName}WhereInput,
   ${modelName}WhereUniqueInput,
   ${modelName}OrderByInput,
+  ${modelName}SelectInput,
+  ${modelName}IncludeInput,
   ${modelName}HookApi,
   Use${modelName}Options
 } from '../types/${modelName}Types';
@@ -100,6 +102,18 @@ import type {
  *   where: { // filters },
  *   orderBy: { // ordering },
  *   take: 20 // limit
+ * });
+ * 
+ * @example
+ * // Select specific fields only
+ * const ${modelName.toLowerCase()} = ${HOOK_NAME_PREFIX}${modelName}({
+ *   select: { id: true, name: true }
+ * });
+ * 
+ * @example
+ * // Include related records
+ * const ${modelName.toLowerCase()} = ${HOOK_NAME_PREFIX}${modelName}({
+ *   include: { relatedModel: true }
  * });
  */
 export const ${HOOK_NAME_PREFIX}${modelName} = createSuparismaHook<

@@ -164,7 +164,39 @@ export type AdvancedWhereInput<T> = {
  *   limit: 10
  * });
  */
-export type SuparismaOptions<TWhereInput, TOrderByInput> = {
+/**
+ * Select input type - specify which fields to return
+ * Use true to include a field, or use an object for relations
+ * @example
+ * // Select specific fields
+ * { id: true, name: true, email: true }
+ * 
+ * @example
+ * // Select fields with relations
+ * { id: true, name: true, posts: true }
+ */
+export type SelectInput<T> = {
+  [K in keyof T]?: boolean;
+};
+
+/**
+ * Include input type - specify which relations to include
+ * @example
+ * // Include a relation with all fields
+ * { posts: true }
+ * 
+ * @example
+ * // Include a relation with specific fields
+ * { posts: { select: { id: true, title: true } } }
+ */
+export type IncludeValue = boolean | { select?: Record<string, boolean> };
+
+export type SuparismaOptions<
+  TWhereInput,
+  TOrderByInput,
+  TSelectInput = Record<string, boolean>,
+  TIncludeInput = Record<never, never>
+> = {
   /** Whether to enable realtime updates (default: true) */
   realtime?: boolean;
   /** Custom channel name for realtime subscription */
@@ -179,6 +211,16 @@ export type SuparismaOptions<TWhereInput, TOrderByInput> = {
   limit?: number;
   /** Offset for pagination (skip records) */
   offset?: number;
+  /** 
+   * Select specific fields to return. Reduces payload size.
+   * @example { id: true, name: true, email: true }
+   */
+  select?: TSelectInput;
+  /**
+   * Include related records (foreign key relations).
+   * @example { posts: true } or { posts: { select: { id: true, title: true } } }
+   */
+  include?: TIncludeInput;
 };
 
 /**
@@ -729,6 +771,82 @@ function matchesFilter<T>(record: any, filter: T): boolean {
 }
 
 /**
+ * Build a Supabase select string from select and include options.
+ * 
+ * @param select - Object specifying which fields to select { field: true }
+ * @param include - Object specifying which relations to include { relation: true }
+ * @returns A Supabase-compatible select string
+ * 
+ * @example
+ * // Select specific fields
+ * buildSelectString({ id: true, name: true }) // Returns "id,name"
+ * 
+ * @example
+ * // Include relations
+ * buildSelectString(undefined, { posts: true }) // Returns "*,posts(*)"
+ * 
+ * @example
+ * // Select fields and include relations with specific fields
+ * buildSelectString({ id: true, name: true }, { posts: { select: { id: true, title: true } } })
+ * // Returns "id,name,posts(id,title)"
+ */
+export function buildSelectString<TSelect, TInclude>(
+  select?: TSelect,
+  include?: TInclude
+): string {
+  const parts: string[] = [];
+  
+  // Handle select - if provided, only return specified fields
+  if (select && typeof select === 'object') {
+    const selectedFields = Object.entries(select)
+      .filter(([_, value]) => value === true)
+      .map(([key]) => key);
+    
+    if (selectedFields.length > 0) {
+      parts.push(...selectedFields);
+    }
+  }
+  
+  // Handle include - add related records
+  if (include && typeof include === 'object') {
+    for (const [relationName, relationValue] of Object.entries(include)) {
+      if (relationValue === true) {
+        // Include all fields from the relation
+        parts.push(\`\${relationName}(*)\`);
+      } else if (typeof relationValue === 'object' && relationValue !== null) {
+        // Include specific fields from the relation
+        const relationOptions = relationValue as { select?: Record<string, boolean> };
+        if (relationOptions.select) {
+          const relationFields = Object.entries(relationOptions.select)
+            .filter(([_, value]) => value === true)
+            .map(([key]) => key);
+          
+          if (relationFields.length > 0) {
+            parts.push(\`\${relationName}(\${relationFields.join(',')})\`);
+          } else {
+            parts.push(\`\${relationName}(*)\`);
+          }
+        } else {
+          parts.push(\`\${relationName}(*)\`);
+        }
+      }
+    }
+  }
+  
+  // If no select specified but include is, we need to include base table fields too
+  if (parts.length === 0) {
+    return '*';
+  }
+  
+  // If only include was specified (no select), we need all base fields plus relations
+  if (!select && include) {
+    return '*,' + parts.join(',');
+  }
+  
+  return parts.join(',');
+}
+
+/**
  * Apply order by to the query builder
  */
 export function applyOrderBy<T>(
@@ -823,13 +941,19 @@ export function createSuparismaHook<
       orderBy,
       limit,
       offset,
+      select,
+      include,
     } = options;
+    
+    // Build the select string once for reuse
+    const selectString = buildSelectString(select, include);
     
     // Refs to store the latest options for realtime handlers
     const whereRef = useRef(where);
     const orderByRef = useRef(orderBy);
     const limitRef = useRef(limit);
     const offsetRef = useRef(offset);
+    const selectStringRef = useRef(selectString);
 
     // Update refs whenever options change
     useEffect(() => {
@@ -847,6 +971,10 @@ export function createSuparismaHook<
     useEffect(() => {
       offsetRef.current = offset;
     }, [offset]);
+
+    useEffect(() => {
+      selectStringRef.current = selectString;
+    }, [selectString]);
 
     // Single data collection for holding results
     const [data, setData] = useState<TWithRelations[]>([]);
@@ -1193,7 +1321,8 @@ export function createSuparismaHook<
         setLoading(true);
         setError(null);
         
-        let query = supabase.from(tableName).select('*');
+        // Use selectString for field selection (includes relations if specified)
+        let query = supabase.from(tableName).select(selectString);
         
         // Apply where conditions if provided
         if (params?.where) {
@@ -1280,7 +1409,7 @@ export function createSuparismaHook<
         
         const { data, error } = await supabase
           .from(tableName)
-          .select('*')
+          .select(selectString)
           .eq(primaryKey, value)
           .maybeSingle();
         
@@ -1603,7 +1732,7 @@ export function createSuparismaHook<
     }, [realtime, channelName, tableName]); // NEVER include 'where' - subscription should persist
 
     // Create a memoized options object to prevent unnecessary re-renders
-    const optionsRef = useRef({ where, orderBy, limit, offset });
+    const optionsRef = useRef({ where, orderBy, limit, offset, selectString });
     
     // Compare current options with previous options
     const optionsChanged = useCallback(() => {
@@ -1618,16 +1747,17 @@ export function createSuparismaHook<
         whereStr !== prevWhereStr ||
         orderByStr !== prevOrderByStr ||
         limit !== optionsRef.current.limit ||
-        offset !== optionsRef.current.offset;
+        offset !== optionsRef.current.offset ||
+        selectString !== optionsRef.current.selectString;
       
       if (hasChanged) {
         // Update the ref with the new values
-        optionsRef.current = { where, orderBy, limit, offset };
+        optionsRef.current = { where, orderBy, limit, offset, selectString };
         return true;
       }
       
       return false;
-    }, [where, orderBy, limit, offset]);
+    }, [where, orderBy, limit, offset, selectString]);
 
     // Load initial data and refetch when options change (BUT NEVER TOUCH SUBSCRIPTION)
     useEffect(() => {
@@ -1751,7 +1881,7 @@ export function createSuparismaHook<
         const { data: result, error } = await supabase
           .from(tableName)
           .insert([itemWithDefaults])
-          .select();
+          .select(selectString);
         
         if (error) throw error;
         
@@ -1843,7 +1973,7 @@ export function createSuparismaHook<
           .from(tableName)
           .update(itemWithDefaults)
           .eq(primaryKey, value)
-          .select();
+          .select(selectString);
         
         if (error) throw error;
         
@@ -1898,7 +2028,7 @@ export function createSuparismaHook<
         // First fetch the record to return it
         const { data: recordToDelete } = await supabase
           .from(tableName)
-          .select('*')
+          .select(selectString)
           .eq(primaryKey, value)
           .maybeSingle();
         

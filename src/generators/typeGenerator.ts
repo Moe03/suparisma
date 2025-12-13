@@ -20,6 +20,11 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
     .filter((field) => field.isRelation && !foreignKeyFields.includes(field.name))
     .map((field) => field.name);
 
+  // Collect relation fields with their target model types (for include + WithRelations typing)
+  const relationFields = model.fields.filter(
+    (field) => relationObjectFields.includes(field.name) && field.type !== modelName
+  );
+
   // Fields that have default values (should be optional in CreateInput)
   const defaultValueFields = model.fields
     .filter((field) => field.hasDefaultValue)
@@ -89,10 +94,7 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
 
   // Create a manual property list for WithRelations interface
   const withRelationsProps = model.fields
-    .filter(
-      (field) =>
-        !relationObjectFields.includes(field.name) && !foreignKeyFields.includes(field.name)
-    )
+    .filter((field) => !relationObjectFields.includes(field.name))
     .map((field) => {
       const isOptional = field.isOptional;
       const finalType = getFieldType(field);
@@ -108,6 +110,24 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
       );
     }
   });
+
+  // Add relation object fields as OPTIONAL (only present when included via include/select)
+  relationFields.forEach((field) => {
+    const relatedModel = field.type;
+    const relatedType = field.isList
+      ? `${relatedModel}WithRelations[]`
+      : `${relatedModel}WithRelations${field.isOptional ? ' | null' : ''}`;
+    withRelationsProps.push(`  ${field.name}?: ${relatedType};`);
+  });
+
+  // Build type-only imports for related model types (to type relations and include.select)
+  const relatedModelImports = Array.from(
+    new Set(relationFields.map((f) => f.type).filter((t) => t && t !== modelName))
+  );
+  // Note: We can't import multiple files in one statement. We'll generate one per model below.
+  const relationTypeImportStatements = relatedModelImports
+    .map((m) => `import type { ${m}WithRelations, ${m}SelectInput } from './${m}Types';`)
+    .join('\n');
 
   // Create a manual property list for CreateInput
   const createInputProps = model.fields
@@ -165,7 +185,8 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
 // Edit the generator script instead
 
 ${customImports}import type { ${modelName} } from '@prisma/client';
-import type { ModelResult, SuparismaOptions, SearchQuery, SearchState, FilterOperators } from '../utils/core';
+import type { ModelResult, SuparismaOptions, SearchQuery, SearchState, FilterOperators, IncludeValue } from '../utils/core';
+${relationTypeImportStatements}
 
 /**
  * Extended ${modelName} type that includes relation fields.
@@ -376,7 +397,28 @@ export type ${modelName}WhereUniqueInput = {
  * });
  */
 export type ${modelName}OrderByInput = {
-  [key in keyof ${modelName}WithRelations]?: 'asc' | 'desc';
+  [key in keyof ${modelName}SelectInput]?: 'asc' | 'desc';
+};
+
+/**
+ * Select specific scalar fields to return from ${modelName} queries.
+ * Relation fields are intentionally excluded; use \`include\` for relations.
+ */
+export type ${modelName}SelectInput = {
+  ${model.fields
+    .filter((f) => !relationObjectFields.includes(f.name))
+    .map((f) => `  ${f.name}?: boolean;`)
+    .join('\n')}
+};
+
+/**
+ * Include related records when querying ${modelName}.
+ * Only real Prisma relation fields are allowed here.
+ */
+export type ${modelName}IncludeInput = {
+  ${relationFields
+    .map((f) => `  ${f.name}?: IncludeValue | { select?: ${f.type}SelectInput };`)
+    .join('\n')}
 };
 
 /**
@@ -391,8 +433,14 @@ export type ${modelName}ManyResult = ModelResult<${modelName}WithRelations[]>;
 
 /**
  * Configuration options for the ${modelName} hook.
+ * Includes where filters, ordering, pagination, and field selection.
  */
-export type Use${modelName}Options = SuparismaOptions<${modelName}WhereInput, ${modelName}OrderByInput>;
+export type Use${modelName}Options = SuparismaOptions<
+  ${modelName}WhereInput,
+  ${modelName}OrderByInput,
+  ${modelName}SelectInput,
+  ${modelName}IncludeInput
+>;
 
 /**
  * The complete API for interacting with ${modelName} records.
