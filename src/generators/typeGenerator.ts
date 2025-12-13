@@ -6,7 +6,10 @@ import { ModelInfo, ProcessedModelInfo, SearchQuery, SearchState, FieldInfo } fr
 /**
  * Generate model-specific types for a model
  */
-export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
+export function generateModelTypesFile(
+  model: ModelInfo,
+  modelNameToTableName: Record<string, string> = {}
+): ProcessedModelInfo {
   const modelName = model.name || '';
   const tableName = model.mappedName || modelName;
 
@@ -24,6 +27,12 @@ export function generateModelTypesFile(model: ModelInfo): ProcessedModelInfo {
   const relationFields = model.fields.filter(
     (field) => relationObjectFields.includes(field.name) && field.type !== modelName
   );
+
+  // Map relation field name -> actual related table name (for PostgREST embedding)
+  const relationMappings: Record<string, string> = {};
+  for (const rel of relationFields) {
+    relationMappings[rel.name] = modelNameToTableName[rel.type] || rel.type;
+  }
 
   // Fields that have default values (should be optional in CreateInput)
   const defaultValueFields = model.fields
@@ -767,6 +776,7 @@ ${createInputProps
     defaultValues: Object.keys(defaultValues).length > 0 ? defaultValues : undefined,
     createdAtField,
     updatedAtField,
+    relationMappings: Object.keys(relationMappings).length > 0 ? relationMappings : undefined,
     zodImports: model.zodImports // Pass through zod imports
   };
 }

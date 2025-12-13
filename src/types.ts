@@ -67,6 +67,8 @@ export interface ProcessedModelInfo {
   defaultValues?: Record<string, string>;
   createdAtField?: string; // Add field name for createdAt
   updatedAtField?: string; // Add field name for updatedAt
+  // Maps Prisma relation field name -> actual related table name (for PostgREST embedding)
+  relationMappings?: Record<string, string>;
   // Add zod import support for processed models
   zodImports?: ZodImportInfo[];
 }

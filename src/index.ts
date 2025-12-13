@@ -529,9 +529,15 @@ async function generateHooks() {
     const models = parsePrismaSchema(PRISMA_SCHEMA_PATH);
     await configurePrismaTablesForSuparisma(PRISMA_SCHEMA_PATH);
 
+    // Map Prisma model name -> actual table name (respects @@map)
+    const modelNameToTableName: Record<string, string> = {};
+    for (const m of models) {
+      modelNameToTableName[m.name] = m.mappedName || m.name;
+    }
+
     const modelInfos: ProcessedModelInfo[] = [];
     for (const model of models) {
-      const modelInfo = generateModelTypesFile(model);
+      const modelInfo = generateModelTypesFile(model, modelNameToTableName);
       generateModelHookFile(modelInfo);
       modelInfos.push(modelInfo);
     }

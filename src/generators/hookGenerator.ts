@@ -19,6 +19,7 @@ export function generateModelHookFile(modelInfo: ProcessedModelInfo): void {
     hasUpdatedAt, 
     searchFields, 
     defaultValues,
+    relationMappings,
     createdAtField = 'createdAt', // Default to camelCase but use actual field name if provided
     updatedAtField = 'updatedAt'  // Default to camelCase but use actual field name if provided
   } = modelInfo;
@@ -37,6 +38,12 @@ export function generateModelHookFile(modelInfo: ProcessedModelInfo): void {
   // Add createdAt/updatedAt field name config
   const fieldNamesConfig = 
     `${hasCreatedAt ? `,\n  // Field name for createdAt from Prisma schema\n  createdAtField: "${createdAtField}"` : ''}${hasUpdatedAt ? `,\n  // Field name for updatedAt from Prisma schema\n  updatedAtField: "${updatedAtField}"` : ''}`;
+
+  // Relation mappings config (Prisma relation field -> related table name for PostgREST embedding)
+  const relationMappingsConfig =
+    relationMappings && Object.keys(relationMappings).length > 0
+      ? `,\n  // Relation mappings for PostgREST embedding\n  relationMappings: ${JSON.stringify(relationMappings)}`
+      : '';
 
   // Generate the hook content
   const hookContent = `// THIS FILE IS AUTO-GENERATED - DO NOT EDIT DIRECTLY
@@ -127,7 +134,7 @@ export const ${HOOK_NAME_PREFIX}${modelName} = createSuparismaHook<
 >({
   tableName: '${tableName}',
   hasCreatedAt: ${hasCreatedAt},
-  hasUpdatedAt: ${hasUpdatedAt}${searchConfig}${defaultValuesConfig}${fieldNamesConfig}
+  hasUpdatedAt: ${hasUpdatedAt}${searchConfig}${defaultValuesConfig}${fieldNamesConfig}${relationMappingsConfig}
 }) as unknown as (options?: Use${modelName}Options) => ${modelName}HookApi;
 `;
 

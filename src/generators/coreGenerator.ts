@@ -792,7 +792,8 @@ function matchesFilter<T>(record: any, filter: T): boolean {
  */
 export function buildSelectString<TSelect, TInclude>(
   select?: TSelect,
-  include?: TInclude
+  include?: TInclude,
+  relationMappings?: Record<string, string>
 ): string {
   const parts: string[] = [];
   
@@ -810,9 +811,16 @@ export function buildSelectString<TSelect, TInclude>(
   // Handle include - add related records
   if (include && typeof include === 'object') {
     for (const [relationName, relationValue] of Object.entries(include)) {
+      const relatedTableName = relationMappings?.[relationName] || relationName;
+      // If mapping exists, use PostgREST alias syntax: alias:foreignTable(...)
+      const embedName =
+        relationMappings?.[relationName] && relatedTableName !== relationName
+          ? \`\${relationName}:\${relatedTableName}\`
+          : relationName;
+
       if (relationValue === true) {
         // Include all fields from the relation
-        parts.push(\`\${relationName}(*)\`);
+        parts.push(\`\${embedName}(*)\`);
       } else if (typeof relationValue === 'object' && relationValue !== null) {
         // Include specific fields from the relation
         const relationOptions = relationValue as { select?: Record<string, boolean> };
@@ -822,12 +830,12 @@ export function buildSelectString<TSelect, TInclude>(
             .map(([key]) => key);
           
           if (relationFields.length > 0) {
-            parts.push(\`\${relationName}(\${relationFields.join(',')})\`);
+            parts.push(\`\${embedName}(\${relationFields.join(',')})\`);
           } else {
-            parts.push(\`\${relationName}(*)\`);
+            parts.push(\`\${embedName}(*)\`);
           }
         } else {
-          parts.push(\`\${relationName}(*)\`);
+          parts.push(\`\${embedName}(*)\`);
         }
       }
     }
@@ -902,6 +910,7 @@ export function createSuparismaHook<
   defaultValues?: Record<string, string>;
   createdAtField?: string;
   updatedAtField?: string;
+  relationMappings?: Record<string, string>;
 }) {
   const { 
     tableName, 
@@ -910,7 +919,8 @@ export function createSuparismaHook<
     searchFields = [], 
     defaultValues = {},
     createdAtField = 'createdAt',
-    updatedAtField = 'updatedAt'
+    updatedAtField = 'updatedAt',
+    relationMappings = {}
   } = config;
   
   /**
@@ -946,7 +956,7 @@ export function createSuparismaHook<
     } = options;
     
     // Build the select string once for reuse
-    const selectString = buildSelectString(select, include);
+    const selectString = buildSelectString(select, include, relationMappings);
     
     // Refs to store the latest options for realtime handlers
     const whereRef = useRef(where);
