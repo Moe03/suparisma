@@ -221,6 +221,13 @@ export type SuparismaOptions<
    * @example { posts: true } or { posts: { select: { id: true, title: true } } }
    */
   include?: TIncludeInput;
+  /**
+   * Whether to enable the hook (default: true).
+   * When false, the hook will not fetch data or set up realtime subscriptions.
+   * Useful for conditional fetching, e.g., waiting for auth/user data to be ready.
+   * @example enabled: !!user?.id
+   */
+  enabled?: boolean;
 };
 
 /**
@@ -953,6 +960,7 @@ export function createSuparismaHook<
       offset,
       select,
       include,
+      enabled = true,
     } = options;
     
     // Build the select string once for reuse
@@ -964,6 +972,7 @@ export function createSuparismaHook<
     const limitRef = useRef(limit);
     const offsetRef = useRef(offset);
     const selectStringRef = useRef(selectString);
+    const enabledRef = useRef(enabled);
 
     // Update refs whenever options change
     useEffect(() => {
@@ -986,6 +995,10 @@ export function createSuparismaHook<
       selectStringRef.current = selectString;
     }, [selectString]);
 
+    useEffect(() => {
+      enabledRef.current = enabled;
+    }, [enabled]);
+
     // Single data collection for holding results
     const [data, setData] = useState<TWithRelations[]>([]);
     const [error, setError] = useState<Error | null>(null);
@@ -1006,7 +1019,8 @@ export function createSuparismaHook<
     // Function to fetch the total count from Supabase with current filters
     const fetchTotalCount = useCallback(async () => {
       try {
-        // Skip count updates during search
+        // Skip count updates when disabled or during search
+        if (!enabledRef.current) return;
         if (isSearchingRef.current) return;
         
         let countQuery = supabase.from(tableName).select('*', { count: 'exact', head: true });
@@ -1437,7 +1451,8 @@ export function createSuparismaHook<
 
         // Set up realtime subscription for the list - ONCE and listen to ALL events
     useEffect(() => {
-      if (!realtime) return;
+      // Skip subscription if not enabled or realtime is off
+      if (!enabled || !realtime) return;
       
       // Clean up previous subscription if it exists
       if (channelRef.current) {
@@ -1739,7 +1754,7 @@ export function createSuparismaHook<
           searchTimeoutRef.current = null;
         }
       };
-    }, [realtime, channelName, tableName]); // NEVER include 'where' - subscription should persist
+    }, [realtime, channelName, tableName, enabled]); // NEVER include 'where' - subscription should persist
 
     // Create a memoized options object to prevent unnecessary re-renders
     const optionsRef = useRef({ where, orderBy, limit, offset, selectString });
@@ -1771,6 +1786,12 @@ export function createSuparismaHook<
 
     // Load initial data and refetch when options change (BUT NEVER TOUCH SUBSCRIPTION)
     useEffect(() => {
+      // Skip fetching if not enabled
+      if (!enabled) {
+        setLoading(false); // Don't show loading spinner when disabled
+        return;
+      }
+      
       // Skip if search is active
       if (isSearchingRef.current) return;
       
@@ -1803,7 +1824,31 @@ export function createSuparismaHook<
       
       // Initial count fetch
       fetchTotalCount();
-    }, [findMany, where, orderBy, limit, offset, optionsChanged, fetchTotalCount]);
+    }, [findMany, where, orderBy, limit, offset, optionsChanged, fetchTotalCount, enabled]);
+
+    // Track previous enabled state to detect changes from false to true
+    const prevEnabledRef = useRef(enabled);
+    
+    // Fetch when enabled changes from false to true
+    useEffect(() => {
+      const wasDisabled = !prevEnabledRef.current;
+      const isNowEnabled = enabled;
+      
+      // Update the previous value
+      prevEnabledRef.current = enabled;
+      
+      // If we just became enabled and have already done initial load, refetch
+      if (wasDisabled && isNowEnabled && initialLoadRef.current) {
+        console.log(\`Hook enabled for \${tableName}, fetching data\`);
+        findMany({
+          where,
+          orderBy,
+          take: limit,
+          skip: offset
+        });
+        fetchTotalCount();
+      }
+    }, [enabled, findMany, where, orderBy, limit, offset, fetchTotalCount]);
 
     /**
      * Create a new record with the provided data.
