@@ -1016,7 +1016,9 @@ export function createSuparismaHook<
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isSearchingRef = useRef<boolean>(false);
 
-    // Function to fetch the total count from Supabase with current filters
+    // Function to fetch the total count from Supabase with current filters.
+    // IMPORTANT: do NOT capture unstable objects (where/orderBy/etc) in deps.
+    // Read the latest values from refs to avoid effect→setState→rerender loops.
     const fetchTotalCount = useCallback(async () => {
       try {
         // Skip count updates when disabled or during search
@@ -1025,25 +1027,23 @@ export function createSuparismaHook<
         
         let countQuery = supabase.from(tableName).select('*', { count: 'exact', head: true });
         
-        // Apply where conditions if provided
-        if (where) {
-          countQuery = applyFilter(countQuery, where);
+        // Apply current where conditions via ref (NOT the captured 'where')
+        const currentWhere = whereRef.current;
+        if (currentWhere) {
+          countQuery = applyFilter(countQuery, currentWhere);
         }
         
         const { count: totalCount, error: countError } = await countQuery;
         
         if (!countError) {
-          setCount(totalCount || 0);
+          const nextCount = totalCount || 0;
+          // Cheap guard to reduce churn
+          setCount((prev) => (prev === nextCount ? prev : nextCount));
         }
       } catch (err) {
         console.error(\`Error fetching count for \${tableName}:\`, err);
       }
-    }, [where, tableName]);
-    
-    // Update total count whenever where filter changes
-    useEffect(() => {
-      fetchTotalCount();
-    }, [fetchTotalCount]);
+    }, [tableName]);
     
     // Create the search state object with all required methods
     const search: SearchState = {
@@ -1450,17 +1450,17 @@ export function createSuparismaHook<
     }, []);
 
         // Set up realtime subscription for the list - ONCE and listen to ALL events
+    const channelIdRef = useRef<string | null>(null);
+
     useEffect(() => {
       // Skip subscription if not enabled or realtime is off
       if (!enabled || !realtime) return;
       
-      // Clean up previous subscription if it exists
-      if (channelRef.current) {
-        channelRef.current.unsubscribe();
-        channelRef.current = null;
-      }
-      
-      const channelId = channelName || \`changes_to_\${tableName}_\${Math.random().toString(36).substring(2, 15)}\`;
+      // Stable channel id per hook instance (unless user explicitly provides channelName)
+      const channelId =
+        channelName ??
+        channelIdRef.current ??
+        (channelIdRef.current = \`changes_to_\${tableName}_\${generateUUID()}\`);
       
       // ALWAYS listen to ALL events and filter client-side for maximum reliability
       let subscriptionConfig: any = {
@@ -1739,13 +1739,15 @@ export function createSuparismaHook<
           console.log(\`Subscription status for \${tableName}\`, status);
         });
       
-      // Store the channel ref
+      // Store the channel ref (for optional introspection)
       channelRef.current = channel;
         
       return () => {
         console.log(\`Unsubscribing from \${channelId}\`);
-        if (channelRef.current) {
-          supabase.removeChannel(channelRef.current); // Correct way to remove channel
+        // Always remove the exact channel created by this effect instance
+        supabase.removeChannel(channel);
+        // Only clear the ref if it still matches (avoid races if effect re-runs)
+        if (channelRef.current === channel) {
           channelRef.current = null;
         }
         
